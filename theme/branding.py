@@ -9,28 +9,28 @@ import streamlit as st
 # ------------------------------------------------------------------
 # Brand identity
 # ------------------------------------------------------------------
-APP_NAME = "Ram-Z Property Management"
-APP_TAGLINE = "Repair Request & Maintenance Tracking"
+APP_NAME = "Ram-Z Restaurant Group"
+APP_TAGLINE = "Property Management & Repair Tracking"
 
 # Path to logo (relative to project root)
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "logo.png")
 
 # ------------------------------------------------------------------
-# Color palette — update these when the Ram-Z logo is provided
+# Color palette — Ram-Z Restaurant Group brand colors
 # ------------------------------------------------------------------
-PRIMARY = "#D32F2F"        # Red — primary actions, headers
-PRIMARY_DARK = "#B71C1C"   # Dark red — hover states
-PRIMARY_LIGHT = "#FFCDD2"  # Light red — backgrounds, highlights
-SECONDARY = "#424242"      # Dark gray — text, secondary elements
-ACCENT = "#FF9800"         # Orange — warnings, attention items
+PRIMARY = "#C4A04D"        # Gold/tan — primary actions, headers (from logo)
+PRIMARY_DARK = "#A6863A"   # Dark gold — hover states
+PRIMARY_LIGHT = "#F0E6CC"  # Light gold — backgrounds, highlights
+SECONDARY = "#1B3A4B"     # Dark navy — text, secondary elements (from logo)
+ACCENT = "#C4A04D"        # Gold — accent matches brand
 SUCCESS = "#4CAF50"        # Green — success states
 WARNING = "#FF9800"        # Orange — warning states
 DANGER = "#F44336"         # Red — danger/emergency
-INFO = "#2196F3"           # Blue — informational
+INFO = "#1B3A4B"           # Navy — informational (brand-aligned)
 BACKGROUND = "#FFFFFF"
-SURFACE = "#F5F5F5"        # Light gray — cards, sidebars
-TEXT_PRIMARY = "#212121"
-TEXT_SECONDARY = "#757575"
+SURFACE = "#F7F4EE"        # Warm light — cards, sidebars
+TEXT_PRIMARY = "#1B3A4B"   # Navy — primary text
+TEXT_SECONDARY = "#6B7B8D" # Muted navy — secondary text
 
 # Urgency colors
 URGENCY_COLORS = {

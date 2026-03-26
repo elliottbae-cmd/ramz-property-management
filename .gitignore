@@ -16,6 +16,5 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 
-# Assets (logo placeholder)
-assets/logo.png
+# Assets
 assets/favicon.ico
