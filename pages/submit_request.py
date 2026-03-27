@@ -1,19 +1,75 @@
 """
-Submit Repair Request — Mobile-first repair request intake form.
-This is the primary page for field staff (GMs, staff).
+Submit Repair Request -- Mobile-first repair request intake form.
 All form options are loaded from the database (admin-configurable).
+Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import (
-    get_current_user, get_stores, get_equipment, create_equipment,
-    get_form_categories, get_form_urgency_levels, get_form_fields,
-    create_ticket, get_user_stores
-)
+from database.supabase_client import get_current_user, get_client, upload_photo
+from database.tenant import get_effective_client_id
+from database.stores import get_stores
+from database.equipment import get_equipment, create_equipment
+from database.tickets import create_ticket
+from database.approvals import initiate_approval_chain, get_threshold
+from database.audit import log_action
 from components.photo_upload import render_photo_upload, save_photos
-from components.notifications import notify_new_ticket
-from components.approval_chain import initiate_approval
 from theme.branding import render_header
+
+
+def _get_form_categories(client_id: str | None) -> list[dict]:
+    """Load form categories for the client (or global defaults)."""
+    try:
+        sb = get_client()
+        query = (
+            sb.table("form_categories")
+            .select("*")
+            .eq("is_active", True)
+            .order("display_order")
+        )
+        # Client-specific or global (client_id IS NULL)
+        if client_id:
+            result_client = query.eq("client_id", client_id).execute()
+            if result_client.data:
+                return result_client.data
+        # Fall back to global categories
+        result_global = (
+            sb.table("form_categories")
+            .select("*")
+            .eq("is_active", True)
+            .is_("client_id", "null")
+            .order("display_order")
+            .execute()
+        )
+        return result_global.data or []
+    except Exception:
+        return []
+
+
+def _get_form_urgency_levels(client_id: str | None) -> list[dict]:
+    """Load urgency levels for the client (or global defaults)."""
+    try:
+        sb = get_client()
+        query = (
+            sb.table("form_urgency_levels")
+            .select("*")
+            .eq("is_active", True)
+            .order("display_order")
+        )
+        if client_id:
+            result_client = query.eq("client_id", client_id).execute()
+            if result_client.data:
+                return result_client.data
+        result_global = (
+            sb.table("form_urgency_levels")
+            .select("*")
+            .eq("is_active", True)
+            .is_("client_id", "null")
+            .order("display_order")
+            .execute()
+        )
+        return result_global.data or []
+    except Exception:
+        return []
 
 
 def render():
@@ -24,22 +80,31 @@ def render():
         st.error("Not logged in.")
         return
 
+    client_id = get_effective_client_id()
+    if not client_id:
+        st.warning("No client context selected. Please select a client first.")
+        return
+
     # Load form configuration from database
-    categories = get_form_categories()
-    urgency_levels = get_form_urgency_levels()
+    categories = _get_form_categories(client_id)
+    urgency_levels = _get_form_urgency_levels(client_id)
 
     if not categories:
         st.warning("No categories configured. Contact your administrator.")
         return
 
     # ---- Store Selection ----
-    # Auto-select user's store if they have one assigned
-    stores = get_stores()
-    store_options = {s["id"]: f"{s['store_number']} - {s['name']}" for s in stores}
+    stores = get_stores(client_id)
+    if not stores:
+        st.warning("No stores found for this client.")
+        return
 
+    store_options = {s["id"]: f"{s['store_number']} - {s['name']}" for s in stores}
+    store_ids = list(store_options.keys())
+
+    # Try to pre-select user's assigned store
     user_store_id = user.get("store_id")
     default_idx = 0
-    store_ids = list(store_options.keys())
     if user_store_id and user_store_id in store_ids:
         default_idx = store_ids.index(user_store_id)
 
@@ -48,7 +113,7 @@ def render():
         options=store_ids,
         format_func=lambda x: store_options[x],
         index=default_idx,
-        help="Select the store where the repair is needed"
+        help="Select the store where the repair is needed",
     )
 
     # ---- Category ----
@@ -59,7 +124,7 @@ def render():
         "Category *",
         options=category_ids,
         format_func=lambda x: category_options[x],
-        help="What type of repair is needed?"
+        help="What type of repair is needed?",
     )
 
     selected_category = next((c for c in categories if c["id"] == selected_category_id), {})
@@ -75,20 +140,47 @@ def render():
         equipment_options[eq["id"]] = label
 
     selected_equipment_id = st.selectbox(
-        "Equipment" + (" *" if selected_category.get("requires_serial") else ""),
+        "Equipment",
         options=list(equipment_options.keys()),
         format_func=lambda x: equipment_options[x],
     )
 
     # New equipment form
     new_equipment_name = None
+    new_manufacturer = None
+    new_brand = None
     new_serial = None
+
     if selected_equipment_id == "new":
         new_equipment_name = st.text_input("Equipment Name *", placeholder="e.g., Walk-in Cooler")
-        if selected_category.get("requires_serial"):
-            new_serial = st.text_input("Serial Number", placeholder="e.g., ABC-12345")
-        else:
-            new_serial = st.text_input("Serial Number (optional)", placeholder="e.g., ABC-12345")
+
+        col_m, col_b, col_s = st.columns(3)
+        with col_m:
+            na_manufacturer = st.checkbox("N/A", key="na_mfg", help="Check if not applicable")
+            new_manufacturer = "" if na_manufacturer else st.text_input(
+                "Manufacturer", placeholder="e.g., Carrier", key="mfg_input"
+            )
+        with col_b:
+            na_brand = st.checkbox("N/A", key="na_brand", help="Check if not applicable")
+            new_brand = "" if na_brand else st.text_input(
+                "Brand", placeholder="e.g., Trane", key="brand_input"
+            )
+        with col_s:
+            na_serial = st.checkbox("N/A", key="na_serial", help="Check if not applicable")
+            new_serial = "" if na_serial else st.text_input(
+                "Serial Number", placeholder="e.g., ABC-12345", key="serial_input"
+            )
+    elif selected_equipment_id and selected_equipment_id != "":
+        # Show existing equipment info
+        selected_eq = next((eq for eq in equipment_list if eq["id"] == selected_equipment_id), None)
+        if selected_eq:
+            eq_cols = st.columns(3)
+            with eq_cols[0]:
+                st.caption(f"Manufacturer: {selected_eq.get('make', 'N/A')}")
+            with eq_cols[1]:
+                st.caption(f"Brand: {selected_eq.get('model', 'N/A')}")
+            with eq_cols[2]:
+                st.caption(f"Serial: {selected_eq.get('serial_number', 'N/A')}")
 
     # ---- Description ----
     description = st.text_area(
@@ -97,45 +189,6 @@ def render():
         height=120,
     )
 
-    # ---- Custom Fields (admin-configurable) ----
-    custom_field_values = {}
-    custom_fields = get_form_fields(selected_category_id) if selected_category_id else []
-    for field in custom_fields:
-        field_key = f"custom_{field['field_name']}"
-        if field["field_type"] == "text":
-            custom_field_values[field["field_name"]] = st.text_input(
-                field["label"] + (" *" if field["is_required"] else ""),
-                key=field_key
-            )
-        elif field["field_type"] == "textarea":
-            custom_field_values[field["field_name"]] = st.text_area(
-                field["label"] + (" *" if field["is_required"] else ""),
-                key=field_key
-            )
-        elif field["field_type"] == "dropdown":
-            options = field.get("options", []) or []
-            custom_field_values[field["field_name"]] = st.selectbox(
-                field["label"] + (" *" if field["is_required"] else ""),
-                options=[""] + options,
-                key=field_key
-            )
-        elif field["field_type"] == "number":
-            custom_field_values[field["field_name"]] = st.number_input(
-                field["label"] + (" *" if field["is_required"] else ""),
-                min_value=0,
-                key=field_key
-            )
-        elif field["field_type"] == "date":
-            custom_field_values[field["field_name"]] = str(st.date_input(
-                field["label"] + (" *" if field["is_required"] else ""),
-                key=field_key
-            ))
-        elif field["field_type"] == "checkbox":
-            custom_field_values[field["field_name"]] = st.checkbox(
-                field["label"],
-                key=field_key
-            )
-
     # ---- Urgency ----
     if urgency_levels:
         urgency_names = [u["name"] for u in urgency_levels]
@@ -143,19 +196,26 @@ def render():
             "Urgency Level *",
             options=urgency_names,
             horizontal=True,
-            help="How urgent is this repair?"
+            help="How urgent is this repair?",
         )
     else:
         selected_urgency = "Not Urgent"
 
     # Show SLA info
-    urgency_obj = next((u for u in urgency_levels if u["name"] == selected_urgency), None)
-    if urgency_obj and urgency_obj.get("sla_hours"):
-        hours = urgency_obj["sla_hours"]
-        if hours >= 24:
-            st.caption(f"Target response time: {hours // 24} day(s)")
-        else:
-            st.caption(f"Target response time: {hours} hour(s)")
+    if urgency_levels:
+        urgency_obj = next((u for u in urgency_levels if u["name"] == selected_urgency), None)
+        if urgency_obj and urgency_obj.get("sla_hours"):
+            hours = urgency_obj["sla_hours"]
+            if hours >= 24:
+                st.caption(f"Target response time: {hours // 24} day(s)")
+            else:
+                st.caption(f"Target response time: {hours} hour(s)")
+
+    # ---- Estimated Cost (optional) ----
+    estimated_cost = st.number_input(
+        "Estimated Cost ($)", min_value=0.0, step=50.0, value=0.0,
+        help="Optional - rough cost estimate for this repair",
+    )
 
     # ---- Photos ----
     st.markdown("---")
@@ -173,13 +233,6 @@ def render():
             errors.append("Please describe the issue.")
         if selected_equipment_id == "new" and not new_equipment_name:
             errors.append("Please enter the equipment name.")
-        if selected_category.get("requires_serial") and selected_equipment_id == "new" and not new_serial:
-            errors.append("Serial number is required for this category.")
-
-        # Validate required custom fields
-        for field in custom_fields:
-            if field["is_required"] and not custom_field_values.get(field["field_name"]):
-                errors.append(f"{field['label']} is required.")
 
         if errors:
             for e in errors:
@@ -190,49 +243,69 @@ def render():
             # Create new equipment if needed
             equipment_id = None
             if selected_equipment_id == "new":
-                new_eq = create_equipment(
-                    selected_store_id, new_equipment_name, new_serial, category_name
-                )
+                eq_data = {
+                    "store_id": selected_store_id,
+                    "name": new_equipment_name,
+                    "category": category_name,
+                }
+                if new_serial:
+                    eq_data["serial_number"] = new_serial
+                if new_manufacturer:
+                    eq_data["make"] = new_manufacturer
+                if new_brand:
+                    eq_data["model"] = new_brand
+
+                new_eq = create_equipment(eq_data)
                 if new_eq:
-                    equipment_id = new_eq[0]["id"]
+                    equipment_id = new_eq["id"]
+                else:
+                    st.error("Failed to create equipment record.")
+                    return
             elif selected_equipment_id:
                 equipment_id = selected_equipment_id
 
-            # Create the ticket
+            # Build ticket data
             ticket_data = {
+                "client_id": client_id,
                 "store_id": selected_store_id,
                 "equipment_id": equipment_id,
                 "category": category_name,
                 "description": description.strip(),
                 "urgency": selected_urgency,
                 "submitted_by": user["id"],
-                "custom_fields": custom_field_values if custom_field_values else {},
+                "status": "submitted",
             }
+            if estimated_cost > 0:
+                ticket_data["estimated_cost"] = estimated_cost
 
             result = create_ticket(ticket_data)
 
             if result:
-                ticket = result[0]
-                ticket_id = ticket["id"]
+                ticket_id = result["id"]
 
                 # Upload photos
                 if uploaded_files:
                     save_photos(uploaded_files, ticket_id)
 
-                # Initiate approval chain
-                initiate_approval(ticket_id)
+                # Initiate approval chain if cost exceeds threshold
+                if estimated_cost > 0:
+                    initiate_approval_chain(ticket_id, client_id, estimated_cost)
 
-                # Send notification
-                store_name = store_options.get(selected_store_id, "")
-                notify_new_ticket(ticket, store_name)
+                # Audit log
+                log_action(
+                    client_id=client_id,
+                    user_id=user["id"],
+                    action="create",
+                    entity_type="ticket",
+                    entity_id=ticket_id,
+                    details={"category": category_name, "urgency": selected_urgency},
+                )
 
                 st.success(
                     f"Repair request submitted successfully! "
-                    f"Ticket #{ticket.get('ticket_number', 'N/A')}"
+                    f"Ticket #{result.get('ticket_number', 'N/A')}"
                 )
                 st.balloons()
-
-                # Reset form
                 st.info("You can submit another request or check 'My Tickets' to track this one.")
             else:
                 st.error("Failed to create ticket. Please try again.")

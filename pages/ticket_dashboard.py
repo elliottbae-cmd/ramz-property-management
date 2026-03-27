@@ -1,21 +1,22 @@
 """
-Ticket Dashboard — Admin/Property Manager view for managing all tickets.
+Ticket Dashboard -- Admin/Property Manager view for managing all tickets.
 Includes filtering, assignment, and ticket detail management.
+Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import (
-    get_current_user, get_tickets, get_ticket_by_id, get_stores,
-    get_ticket_photos, get_ticket_comments, get_approvals_for_ticket,
-    update_ticket, add_ticket_comment, get_property_team_workload,
-    get_contractors, get_form_categories, get_form_urgency_levels,
-    create_work_order
-)
+from database.supabase_client import get_current_user, get_client
+from database.tenant import get_effective_client_id
+from database.stores import get_stores
+from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, add_comment, update_ticket
+from database.users import get_users_for_client
+from database.contractors import get_contractors
+from database.work_orders import create_work_order
+from database.audit import log_action
 from components.ticket_card import render_ticket_card, render_ticket_detail
-from components.approval_chain import render_approval_actions, initiate_approval
-from components.notifications import notify_ticket_assigned
-from theme.branding import render_header, STATUS_COLORS
-from utils.constants import TICKET_STATUSES, STATUS_LABELS
+from theme.branding import render_header
+from utils.constants import TICKET_STATUSES, STATUS_LABELS, URGENCY_LEVELS
+from utils.permissions import require_permission, can_manage_tickets
 from utils.helpers import format_currency
 
 
@@ -24,38 +25,52 @@ def render():
 
     user = get_current_user()
     if not user:
+        st.error("Not logged in.")
+        return
+
+    require_permission(can_manage_tickets, "You do not have access to the ticket dashboard.")
+
+    client_id = get_effective_client_id()
+    if not client_id:
+        st.warning("No client context selected.")
         return
 
     # Check if viewing a specific ticket
     if "dashboard_ticket_id" in st.session_state:
-        _render_management_view(st.session_state["dashboard_ticket_id"], user)
+        _render_management_view(st.session_state["dashboard_ticket_id"], user, client_id)
         return
 
     # ---- Filters ----
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        stores = get_stores()
-        store_options = {"all": "All Stores"} | {s["id"]: f"{s['store_number']} - {s['name']}" for s in stores}
-        store_filter = st.selectbox("Store", list(store_options.keys()),
-                                     format_func=lambda x: store_options[x])
+        stores = get_stores(client_id)
+        store_options = {"all": "All Stores"} | {
+            s["id"]: f"{s['store_number']} - {s['name']}" for s in stores
+        }
+        store_filter = st.selectbox(
+            "Store", list(store_options.keys()),
+            format_func=lambda x: store_options[x],
+        )
 
     with col2:
         status_options = {"all": "All Statuses"} | {s: STATUS_LABELS[s] for s in TICKET_STATUSES}
-        status_filter = st.selectbox("Status", list(status_options.keys()),
-                                      format_func=lambda x: status_options[x])
+        status_filter = st.selectbox(
+            "Status", list(status_options.keys()),
+            format_func=lambda x: status_options[x],
+        )
 
     with col3:
-        categories = get_form_categories()
-        cat_options = {"all": "All Categories"} | {c["name"]: c["name"] for c in categories}
-        cat_filter = st.selectbox("Category", list(cat_options.keys()),
-                                   format_func=lambda x: cat_options[x])
+        cat_options = {"all": "All Categories"} | {u: u for u in URGENCY_LEVELS}
+        # Use urgency levels from constants as a simple filter
+        urg_filter = st.selectbox(
+            "Urgency", list(cat_options.keys()),
+            format_func=lambda x: cat_options[x],
+        )
 
     with col4:
-        urgency_levels = get_form_urgency_levels()
-        urg_options = {"all": "All Urgencies"} | {u["name"]: u["name"] for u in urgency_levels}
-        urg_filter = st.selectbox("Urgency", list(urg_options.keys()),
-                                   format_func=lambda x: urg_options[x])
+        # Date range filter
+        date_range = st.date_input("Date Range", value=[], key="dash_date_range")
 
     # Build filter dict
     filters = {}
@@ -63,12 +78,10 @@ def render():
         filters["store_id"] = store_filter
     if status_filter != "all":
         filters["status"] = status_filter
-    if cat_filter != "all":
-        filters["category"] = cat_filter
     if urg_filter != "all":
         filters["urgency"] = urg_filter
 
-    tickets = get_tickets(filters)
+    tickets = get_tickets_for_client(client_id, filters if filters else None)
 
     # ---- Summary metrics ----
     st.markdown("---")
@@ -77,10 +90,17 @@ def render():
         submitted = sum(1 for t in tickets if t["status"] == "submitted")
         st.metric("New", submitted)
     with m2:
-        in_progress = sum(1 for t in tickets if t["status"] in ("assigned", "pending_approval", "approved", "in_progress"))
+        in_progress = sum(
+            1 for t in tickets
+            if t["status"] in ("assigned", "pending_approval", "approved", "in_progress")
+        )
         st.metric("In Progress", in_progress)
     with m3:
-        emergency = sum(1 for t in tickets if t.get("urgency") == "911 Emergency" and t["status"] not in ("completed", "closed"))
+        emergency = sum(
+            1 for t in tickets
+            if t.get("urgency") == "911 Emergency"
+            and t["status"] not in ("completed", "closed")
+        )
         st.metric("Emergencies", emergency)
     with m4:
         st.metric("Total", len(tickets))
@@ -102,20 +122,21 @@ def render():
                 st.rerun()
 
 
-def _render_management_view(ticket_id: str, user: dict):
+def _render_management_view(ticket_id: str, user: dict, client_id: str):
     """Render the management/detail view for a ticket."""
     if st.button("< Back to Dashboard"):
         del st.session_state["dashboard_ticket_id"]
         st.rerun()
 
-    ticket = get_ticket_by_id(ticket_id)
+    ticket = get_ticket(ticket_id)
     if not ticket:
         st.error("Ticket not found.")
         return
 
-    photos = get_ticket_photos(ticket_id)
+    # Get photos
+    photos = _get_ticket_photos(ticket_id)
     comments = get_ticket_comments(ticket_id)
-    approvals = get_approvals_for_ticket(ticket_id)
+    approvals = _get_ticket_approvals(ticket_id)
 
     render_ticket_detail(ticket, photos, comments, approvals)
 
@@ -128,28 +149,33 @@ def _render_management_view(ticket_id: str, user: dict):
     )
 
     with tab_assign:
-        workload = get_property_team_workload()
-        if workload:
-            st.markdown("**Assign to team member** (sorted by fewest open tickets):")
-            for member in workload:
-                col1, col2, col3 = st.columns([3, 1, 1])
-                with col1:
-                    st.write(member["full_name"])
-                with col2:
-                    st.caption(f"{member['open_tickets']} open")
-                with col3:
-                    if st.button("Assign", key=f"assign_{member['id']}", use_container_width=True):
-                        update_ticket(ticket_id, {"assigned_to": member["id"], "status": "assigned"})
-                        notify_ticket_assigned(ticket_id, member["full_name"])
-                        st.success(f"Assigned to {member['full_name']}")
-                        st.rerun()
+        # Get users for this client who can be assigned
+        client_users = get_users_for_client(client_id)
+        if client_users:
+            st.markdown("**Assign to team member:**")
+            user_options = {u["id"]: f"{u['full_name']} ({u.get('client_role', 'N/A')})" for u in client_users}
+            selected_user = st.selectbox(
+                "Select team member",
+                options=list(user_options.keys()),
+                format_func=lambda x: user_options[x],
+                key="assign_user",
+            )
+            if st.button("Assign", key="do_assign", use_container_width=True):
+                result = update_ticket(ticket_id, {"assigned_to": selected_user, "status": "assigned"})
+                if result:
+                    log_action(client_id, user["id"], "update", "ticket", ticket_id,
+                               {"action": "assigned", "assigned_to": selected_user})
+                    st.success(f"Assigned to {user_options[selected_user]}")
+                    st.rerun()
+                else:
+                    st.error("Failed to assign ticket.")
         else:
-            st.info("No property team members found. Add users with the Property Manager role in Admin Settings.")
+            st.info("No team members found for this client.")
 
     with tab_cost:
         current_est = ticket.get("estimated_cost") or 0
         new_estimate = st.number_input(
-            "Estimated Cost ($)", min_value=0.0, value=float(current_est), step=50.0
+            "Estimated Cost ($)", min_value=0.0, value=float(current_est), step=50.0,
         )
         if st.button("Update Estimate", use_container_width=True):
             update_ticket(ticket_id, {"estimated_cost": new_estimate})
@@ -158,7 +184,7 @@ def _render_management_view(ticket_id: str, user: dict):
 
         actual = ticket.get("actual_cost") or 0
         new_actual = st.number_input(
-            "Actual Cost ($)", min_value=0.0, value=float(actual), step=50.0
+            "Actual Cost ($)", min_value=0.0, value=float(actual), step=50.0,
         )
         if st.button("Update Actual Cost", use_container_width=True):
             update_ticket(ticket_id, {"actual_cost": new_actual})
@@ -171,54 +197,94 @@ def _render_management_view(ticket_id: str, user: dict):
             "Change Status",
             options=TICKET_STATUSES,
             index=TICKET_STATUSES.index(current_status) if current_status in TICKET_STATUSES else 0,
-            format_func=lambda x: STATUS_LABELS.get(x, x)
+            format_func=lambda x: STATUS_LABELS.get(x, x),
         )
         if st.button("Update Status", use_container_width=True):
             update_ticket(ticket_id, {"status": new_status})
+            log_action(client_id, user["id"], "update", "ticket", ticket_id,
+                       {"status_change": f"{current_status} -> {new_status}"})
             st.success(f"Status updated to {STATUS_LABELS.get(new_status, new_status)}")
             st.rerun()
 
     with tab_workorder:
         st.markdown("**Issue Work Order to Contractor**")
-        # Match contractors by category
-        store = ticket.get("stores", {}) or {}
-        region = store.get("region", "")
-        contractors = get_contractors(trade=ticket.get("category"), region=region)
-
-        if not contractors:
-            contractors = get_contractors()  # Fall back to all contractors
+        contractors = get_contractors({"active_only": True})
 
         if contractors:
-            contractor_options = {c["id"]: f"{'⭐ ' if c.get('is_preferred') else ''}{c['company_name']} ({c.get('avg_rating', 0):.1f}/5)" for c in contractors}
+            contractor_options = {
+                c["id"]: f"{'* ' if c.get('is_preferred') else ''}{c['company_name']} ({c.get('avg_rating', 0):.1f}/5)"
+                for c in contractors
+            }
             selected_contractor = st.selectbox(
                 "Select Contractor",
                 options=list(contractor_options.keys()),
-                format_func=lambda x: contractor_options[x]
+                format_func=lambda x: contractor_options[x],
             )
             wo_amount = st.number_input("Work Order Amount ($)", min_value=0.0, step=50.0, key="wo_amount")
             wo_notes = st.text_area("Notes", key="wo_notes", placeholder="Special instructions for the contractor...")
 
             if st.button("Issue Work Order", type="primary", use_container_width=True):
-                create_work_order({
+                wo = create_work_order({
                     "ticket_id": ticket_id,
+                    "client_id": client_id,
                     "contractor_id": selected_contractor,
                     "amount": wo_amount,
-                    "notes": wo_notes,
+                    "notes": wo_notes or None,
                 })
-                update_ticket(ticket_id, {"status": "in_progress"})
-                st.success("Work order issued!")
-                st.rerun()
+                if wo:
+                    update_ticket(ticket_id, {"status": "in_progress"})
+                    log_action(client_id, user["id"], "create", "work_order", wo["id"],
+                               {"ticket_id": ticket_id, "contractor_id": selected_contractor})
+                    st.success("Work order issued!")
+                    st.rerun()
+                else:
+                    st.error("Failed to create work order.")
         else:
             st.info("No contractors found. Add contractors in the Contractor Directory.")
 
     with tab_comment:
-        new_comment = st.text_area("Add Management Note", key="mgmt_comment",
-                                    placeholder="Internal note or update...")
+        new_comment = st.text_area(
+            "Add Management Note", key="mgmt_comment",
+            placeholder="Internal note or update...",
+        )
+        is_internal = st.checkbox("Internal note (visible to management only)", value=True, key="mgmt_internal")
         if st.button("Post Comment", key="post_mgmt_comment", use_container_width=True):
             if new_comment and new_comment.strip():
-                add_ticket_comment(ticket_id, user["id"], new_comment.strip())
-                st.success("Comment added!")
-                st.rerun()
+                result = add_comment(ticket_id, user["id"], new_comment.strip(), is_internal=is_internal)
+                if result:
+                    st.success("Comment added!")
+                    st.rerun()
+                else:
+                    st.error("Failed to add comment.")
 
-    # Approval actions (if applicable)
-    render_approval_actions(ticket_id, ticket.get("status", ""))
+
+def _get_ticket_photos(ticket_id: str) -> list[dict]:
+    """Fetch photos for a ticket."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("ticket_photos")
+            .select("*")
+            .eq("ticket_id", ticket_id)
+            .order("created_at")
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []
+
+
+def _get_ticket_approvals(ticket_id: str) -> list[dict]:
+    """Fetch approval records for a ticket."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("approvals")
+            .select("*, users:approver_id(full_name)")
+            .eq("ticket_id", ticket_id)
+            .order("sequence")
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []

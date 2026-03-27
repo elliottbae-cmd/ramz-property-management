@@ -2,7 +2,7 @@
 
 import streamlit as st
 import uuid
-from database.supabase_client import upload_photo, add_ticket_photo
+from database.supabase_client import upload_photo, get_client
 
 
 def render_photo_upload(ticket_id: str = None):
@@ -34,7 +34,12 @@ def save_photos(uploaded_files, ticket_id: str) -> list:
         unique_name = f"{uuid.uuid4().hex}.{file_ext}"
         try:
             url = upload_photo(file.getvalue(), unique_name, ticket_id)
-            add_ticket_photo(ticket_id, url)
+            # Record the photo in the ticket_photos table
+            sb = get_client()
+            sb.table("ticket_photos").insert({
+                "ticket_id": ticket_id,
+                "photo_url": url,
+            }).execute()
             urls.append(url)
         except Exception as e:
             st.warning(f"Failed to upload {file.name}: {str(e)}")

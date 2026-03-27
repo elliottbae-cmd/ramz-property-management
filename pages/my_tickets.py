@@ -1,16 +1,15 @@
 """
-My Tickets — View tickets submitted by or assigned to the current user.
+My Tickets -- View tickets submitted by or assigned to the current user.
+Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import (
-    get_current_user, get_tickets, get_ticket_by_id,
-    get_ticket_photos, get_ticket_comments, get_approvals_for_ticket,
-    add_ticket_comment
-)
+from database.supabase_client import get_current_user, get_client
+from database.tickets import get_tickets_for_user, get_ticket, get_ticket_comments, add_comment
 from components.ticket_card import render_ticket_card, render_ticket_detail
 from components.photo_upload import render_photo_upload, save_photos
 from theme.branding import render_header
+from utils.constants import TICKET_STATUSES, STATUS_LABELS
 
 
 def render():
@@ -18,6 +17,7 @@ def render():
 
     user = get_current_user()
     if not user:
+        st.error("Not logged in.")
         return
 
     # Check if viewing a specific ticket
@@ -25,53 +25,62 @@ def render():
         _render_ticket_detail_view(st.session_state["selected_ticket_id"], user)
         return
 
+    # Fetch all tickets for this user (submitted + assigned)
+    tickets = get_tickets_for_user(user["id"])
+
+    if not tickets:
+        st.info("You haven't submitted any repair requests yet.")
+        return
+
     # Tabs for submitted vs assigned
     tab_submitted, tab_assigned = st.tabs(["Submitted by Me", "Assigned to Me"])
 
     with tab_submitted:
-        tickets = get_tickets({"submitted_by": user["id"]})
-        if not tickets:
+        submitted = [t for t in tickets if t.get("submitted_by") == user["id"]]
+        if not submitted:
             st.info("You haven't submitted any repair requests yet.")
         else:
             # Status filter
             status_filter = st.selectbox(
                 "Filter by status",
-                ["All"] + ["submitted", "assigned", "pending_approval", "approved",
-                           "in_progress", "completed", "closed"],
-                key="my_submitted_status"
+                ["All"] + list(STATUS_LABELS.keys()),
+                format_func=lambda x: STATUS_LABELS.get(x, x) if x != "All" else "All Statuses",
+                key="my_submitted_status",
             )
             if status_filter != "All":
-                tickets = [t for t in tickets if t["status"] == status_filter]
+                submitted = [t for t in submitted if t["status"] == status_filter]
 
-            st.caption(f"{len(tickets)} ticket(s)")
-            for ticket in tickets:
+            st.caption(f"{len(submitted)} ticket(s)")
+            for ticket in submitted:
                 render_ticket_card(ticket, on_click_key=f"view_submitted_{ticket['id']}")
 
     with tab_assigned:
-        tickets = get_tickets({"assigned_to": user["id"]})
-        if not tickets:
+        assigned = [t for t in tickets if t.get("assigned_to") == user["id"]]
+        if not assigned:
             st.info("No tickets are assigned to you.")
         else:
-            st.caption(f"{len(tickets)} ticket(s)")
-            for ticket in tickets:
+            st.caption(f"{len(assigned)} ticket(s)")
+            for ticket in assigned:
                 render_ticket_card(ticket, on_click_key=f"view_assigned_{ticket['id']}")
 
 
 def _render_ticket_detail_view(ticket_id: str, user: dict):
     """Render the detail view for a single ticket."""
-    # Back button
     if st.button("< Back to My Tickets"):
         del st.session_state["selected_ticket_id"]
         st.rerun()
 
-    ticket = get_ticket_by_id(ticket_id)
+    ticket = get_ticket(ticket_id)
     if not ticket:
         st.error("Ticket not found.")
         return
 
-    photos = get_ticket_photos(ticket_id)
+    # Get photos from ticket_photos table
+    photos = _get_ticket_photos(ticket_id)
     comments = get_ticket_comments(ticket_id)
-    approvals = get_approvals_for_ticket(ticket_id)
+
+    # Get approvals if any
+    approvals = _get_ticket_approvals(ticket_id)
 
     render_ticket_detail(ticket, photos, comments, approvals)
 
@@ -81,9 +90,12 @@ def _render_ticket_detail_view(ticket_id: str, user: dict):
     new_comment = st.text_area("Comment", key="new_comment", placeholder="Add an update or note...")
     if st.button("Post Comment", use_container_width=True):
         if new_comment and new_comment.strip():
-            add_ticket_comment(ticket_id, user["id"], new_comment.strip())
-            st.success("Comment added!")
-            st.rerun()
+            result = add_comment(ticket_id, user["id"], new_comment.strip())
+            if result:
+                st.success("Comment added!")
+                st.rerun()
+            else:
+                st.error("Failed to add comment.")
         else:
             st.warning("Please enter a comment.")
 
@@ -95,3 +107,35 @@ def _render_ticket_detail_view(ticket_id: str, user: dict):
         save_photos(additional_photos, ticket_id)
         st.success("Photos uploaded!")
         st.rerun()
+
+
+def _get_ticket_photos(ticket_id: str) -> list[dict]:
+    """Fetch photos for a ticket."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("ticket_photos")
+            .select("*")
+            .eq("ticket_id", ticket_id)
+            .order("created_at")
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []
+
+
+def _get_ticket_approvals(ticket_id: str) -> list[dict]:
+    """Fetch approval records for a ticket."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("approvals")
+            .select("*, users:approver_id(full_name)")
+            .eq("ticket_id", ticket_id)
+            .order("sequence")
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []

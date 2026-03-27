@@ -2,6 +2,9 @@
 headless = true
 port = 8501
 
+[client]
+showSidebarNavigation = false
+
 [theme]
 primaryColor = "#C4A04D"
 backgroundColor = "#FFFFFF"

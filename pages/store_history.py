@@ -1,106 +1,162 @@
 """
-Store History & Reports — Per-store and per-equipment repair history and spend tracking.
+Store History & Reports -- Per-store analytics, resolution times, and spend tracking.
+Uses new multi-tenant module imports with plotly charts.
 """
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-from database.supabase_client import (
-    get_current_user, get_stores, get_store_spend_summary,
-    get_equipment, get_equipment_history, get_tickets
+from datetime import datetime, timedelta
+
+from database.supabase_client import get_current_user
+from database.tenant import get_effective_client_id
+from database.stores import get_stores
+from database.reporting import (
+    get_store_metrics, get_client_summary,
+    get_resolution_times, get_urgency_breakdown,
 )
-from theme.branding import render_header, PRIMARY
+from theme.branding import render_header
+from utils.permissions import require_permission, can_view_reports
 from utils.helpers import format_currency, format_date_short
+
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 
 
 def render():
-    render_header("Store History & Reports", "Repair history and spend tracking")
+    render_header("Store History & Reports", "Analytics and spend tracking")
 
     user = get_current_user()
     if not user:
+        st.error("Not logged in.")
         return
 
-    tab_overview, tab_store, tab_equipment = st.tabs(
-        ["Overview", "Store Detail", "Equipment History"]
+    require_permission(can_view_reports, "You do not have access to reports.")
+
+    client_id = get_effective_client_id()
+    if not client_id:
+        st.warning("No client context selected.")
+        return
+
+    tab_overview, tab_store, tab_resolution, tab_urgency = st.tabs(
+        ["Overview", "Store Detail", "Resolution Times", "Urgency Breakdown"]
     )
 
     with tab_overview:
-        _render_overview()
+        _render_overview(client_id)
 
     with tab_store:
-        _render_store_detail()
+        _render_store_detail(client_id)
 
-    with tab_equipment:
-        _render_equipment_detail()
+    with tab_resolution:
+        _render_resolution_times(client_id)
+
+    with tab_urgency:
+        _render_urgency_breakdown(client_id)
 
 
-def _render_overview():
-    """Render the high-level spend overview across all stores."""
-    st.markdown("### Spend Overview")
+def _render_overview(client_id: str):
+    """Render the high-level client summary and metrics."""
+    st.markdown("### Client Overview")
 
-    data = get_store_spend_summary()
-    if not data:
-        st.info("No completed tickets with cost data yet.")
-        return
+    # Date range filter
+    col_start, col_end = st.columns(2)
+    with col_start:
+        start_date = st.date_input(
+            "Start Date",
+            value=datetime.now() - timedelta(days=365),
+            key="overview_start",
+        )
+    with col_end:
+        end_date = st.date_input("End Date", value=datetime.now(), key="overview_end")
 
-    df = pd.DataFrame(data)
+    date_range = (start_date.isoformat(), end_date.isoformat()) if start_date and end_date else None
 
-    # Extract store info
-    df["store_name"] = df["stores"].apply(lambda x: f"{x['store_number']} - {x['name']}" if x else "Unknown")
-    df["year"] = pd.to_datetime(df["created_at"]).dt.year
-    df["actual_cost"] = pd.to_numeric(df["actual_cost"], errors="coerce").fillna(0)
+    # Client summary metrics
+    summary = get_client_summary(client_id, date_range)
 
-    # Summary metrics
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Spend (All Time)", format_currency(df["actual_cost"].sum()))
+        st.metric("Total Tickets", summary["total_tickets"])
     with col2:
-        current_year = datetime.now().year
-        year_spend = df[df["year"] == current_year]["actual_cost"].sum()
-        st.metric(f"Spend This Year ({current_year})", format_currency(year_spend))
+        st.metric("Open Tickets", summary["open_tickets"])
     with col3:
-        st.metric("Total Completed Repairs", len(df))
+        st.metric("Total Spend", format_currency(summary["total_spend"]))
+    with col4:
+        st.metric("Avg Cost/Ticket", format_currency(summary["avg_cost"]))
 
-    # Spend by store
+    # Store-level breakdown
     st.markdown("---")
     st.markdown("### Spend by Store")
 
+    metrics = get_store_metrics(client_id, date_range=date_range)
+    if not metrics:
+        st.info("No ticket data available for the selected date range.")
+        return
+
+    df = pd.DataFrame(metrics)
+    df["store_name"] = df["stores"].apply(
+        lambda x: f"{x['store_number']} - {x['name']}" if isinstance(x, dict) else "Unknown"
+    )
+    df["actual_cost"] = pd.to_numeric(df.get("actual_cost", 0), errors="coerce").fillna(0)
+    df["year"] = pd.to_datetime(df["created_at"]).dt.year
+
+    # Store summary table
     store_summary = (
         df.groupby("store_name")["actual_cost"]
         .agg(["sum", "count"])
-        .rename(columns={"sum": "Total Spend", "count": "Repairs"})
+        .rename(columns={"sum": "Total Spend", "count": "Tickets"})
         .sort_values("Total Spend", ascending=False)
     )
-    store_summary["Total Spend"] = store_summary["Total Spend"].apply(lambda x: format_currency(x))
+    store_summary["Total Spend"] = store_summary["Total Spend"].apply(format_currency)
     st.dataframe(store_summary, use_container_width=True)
+
+    # Chart: Spend by store
+    if HAS_PLOTLY:
+        chart_df = (
+            df.groupby("store_name")["actual_cost"]
+            .sum()
+            .reset_index()
+            .sort_values("actual_cost", ascending=True)
+        )
+        fig = px.bar(
+            chart_df, x="actual_cost", y="store_name",
+            orientation="h",
+            labels={"actual_cost": "Total Spend ($)", "store_name": "Store"},
+            title="Spend by Store",
+        )
+        fig.update_layout(height=max(300, len(chart_df) * 35))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        # Fallback to Streamlit chart
+        chart_data = df.groupby("store_name")["actual_cost"].sum().reset_index()
+        chart_data.columns = ["Store", "Spend"]
+        st.bar_chart(chart_data.set_index("Store"))
 
     # Spend by year
     st.markdown("### Spend by Year")
     year_summary = (
         df.groupby("year")["actual_cost"]
         .agg(["sum", "count"])
-        .rename(columns={"sum": "Total Spend", "count": "Repairs"})
+        .rename(columns={"sum": "Total Spend", "count": "Tickets"})
         .sort_index(ascending=False)
     )
     year_summary.index = year_summary.index.astype(int)
-    year_summary["Total Spend"] = year_summary["Total Spend"].apply(lambda x: format_currency(x))
+    year_summary["Total Spend"] = year_summary["Total Spend"].apply(format_currency)
     st.dataframe(year_summary, use_container_width=True)
-
-    # Chart
-    st.markdown("### Spend Trend")
-    chart_data = df.groupby("year")["actual_cost"].sum().reset_index()
-    chart_data.columns = ["Year", "Spend"]
-    st.bar_chart(chart_data.set_index("Year"))
 
     # Export
     st.markdown("---")
-    csv = df[["store_name", "category", "actual_cost", "estimated_cost", "created_at"]].to_csv(index=False)
-    st.download_button("Export to CSV", csv, "spend_summary.csv", "text/csv", use_container_width=True)
+    csv = df[["store_name", "status", "urgency", "actual_cost", "estimated_cost", "created_at"]].to_csv(index=False)
+    st.download_button("Export to CSV", csv, "client_spend_summary.csv", "text/csv", use_container_width=True)
 
 
-def _render_store_detail():
+def _render_store_detail(client_id: str):
     """Render detailed view for a specific store."""
-    stores = get_stores(active_only=False)
+    stores = get_stores(client_id, active_only=False)
     if not stores:
         st.info("No stores found.")
         return
@@ -110,7 +166,7 @@ def _render_store_detail():
         "Select Store",
         list(store_options.keys()),
         format_func=lambda x: store_options[x],
-        key="store_detail_select"
+        key="store_detail_select",
     )
 
     if not selected_store:
@@ -118,16 +174,19 @@ def _render_store_detail():
 
     store = next((s for s in stores if s["id"] == selected_store), {})
     st.markdown(f"### {store.get('store_number', '')} - {store.get('name', '')}")
-    st.caption(f"{store.get('address', '')} | {store.get('city', '')}, {store.get('state', '')} | Region: {store.get('region', '')}")
+    st.caption(
+        f"{store.get('address', '')} | "
+        f"{store.get('city', '')}, {store.get('state', '')}"
+    )
 
-    # Get tickets for this store
-    tickets = get_tickets({"store_id": selected_store})
+    # Get metrics for this specific store
+    metrics = get_store_metrics(client_id, store_id=selected_store)
 
-    if not tickets:
+    if not metrics:
         st.info("No tickets for this store yet.")
         return
 
-    df = pd.DataFrame(tickets)
+    df = pd.DataFrame(metrics)
     df["actual_cost"] = pd.to_numeric(df.get("actual_cost", 0), errors="coerce").fillna(0)
     df["estimated_cost"] = pd.to_numeric(df.get("estimated_cost", 0), errors="coerce").fillna(0)
     df["year"] = pd.to_datetime(df["created_at"]).dt.year
@@ -147,38 +206,15 @@ def _render_store_detail():
         open_count = df[~df["status"].isin(["completed", "closed", "rejected"])].shape[0]
         st.metric("Open Tickets", open_count)
 
-    # Spend by category
-    st.markdown("### Spend by Category")
-    cat_summary = (
-        completed.groupby("category")["actual_cost"]
-        .agg(["sum", "count"])
-        .rename(columns={"sum": "Total Spend", "count": "Repairs"})
-        .sort_values("Total Spend", ascending=False)
-    )
-    cat_summary["Total Spend"] = cat_summary["Total Spend"].apply(lambda x: format_currency(x))
-    st.dataframe(cat_summary, use_container_width=True)
-
-    # Yearly breakdown
-    st.markdown("### Yearly Breakdown")
-    yearly = (
-        completed.groupby("year")["actual_cost"]
-        .agg(["sum", "count"])
-        .rename(columns={"sum": "Total Spend", "count": "Repairs"})
-        .sort_index(ascending=False)
-    )
-    yearly.index = yearly.index.astype(int)
-    yearly["Total Spend"] = yearly["Total Spend"].apply(lambda x: format_currency(x))
-    st.dataframe(yearly, use_container_width=True)
-
-    # Recent tickets
-    st.markdown("### Recent Tickets")
-    recent = df.head(20)
-    display_df = recent[["ticket_number", "category", "urgency", "status", "estimated_cost", "actual_cost", "created_at"]].copy()
-    display_df["created_at"] = display_df["created_at"].apply(lambda x: format_date_short(x))
-    display_df["estimated_cost"] = display_df["estimated_cost"].apply(format_currency)
-    display_df["actual_cost"] = display_df["actual_cost"].apply(format_currency)
-    display_df.columns = ["#", "Category", "Urgency", "Status", "Est. Cost", "Actual Cost", "Date"]
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    # Spend by urgency for this store
+    if HAS_PLOTLY:
+        urgency_df = df.groupby("urgency")["actual_cost"].sum().reset_index()
+        if not urgency_df.empty:
+            fig = px.pie(
+                urgency_df, values="actual_cost", names="urgency",
+                title="Spend by Urgency Level",
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     # Export
     csv = df.to_csv(index=False)
@@ -187,87 +223,101 @@ def _render_store_detail():
         csv,
         f"store_{store.get('store_number', '')}_history.csv",
         "text/csv",
-        use_container_width=True
+        use_container_width=True,
     )
 
 
-def _render_equipment_detail():
-    """Render equipment repair history."""
-    stores = get_stores()
-    store_options = {s["id"]: f"{s['store_number']} - {s['name']}" for s in stores}
+def _render_resolution_times(client_id: str):
+    """Render resolution time analytics."""
+    st.markdown("### Resolution Time Analysis")
 
-    selected_store = st.selectbox(
-        "Select Store",
-        list(store_options.keys()),
-        format_func=lambda x: store_options[x],
-        key="equip_store_select"
-    )
-
-    if not selected_store:
+    data = get_resolution_times(client_id)
+    if not data:
+        st.info("No completed tickets with resolution data yet.")
         return
 
-    equipment = get_equipment(selected_store, active_only=False)
-    if not equipment:
-        st.info("No equipment registered for this store.")
-        return
+    df = pd.DataFrame(data)
+    df["created_at"] = pd.to_datetime(df["created_at"])
+    df["resolved_at"] = pd.to_datetime(df["resolved_at"])
+    df["resolution_hours"] = (df["resolved_at"] - df["created_at"]).dt.total_seconds() / 3600
+    df["resolution_days"] = df["resolution_hours"] / 24
 
-    equip_options = {e["id"]: f"{e['name']} (SN: {e.get('serial_number', 'N/A')})" for e in equipment}
-    selected_equip = st.selectbox(
-        "Select Equipment",
-        list(equip_options.keys()),
-        format_func=lambda x: equip_options[x],
-        key="equip_select"
-    )
-
-    if not selected_equip:
-        return
-
-    equip = next((e for e in equipment if e["id"] == selected_equip), {})
-    st.markdown(f"### {equip.get('name', '')}")
-    st.caption(
-        f"Serial: {equip.get('serial_number', 'N/A')} | "
-        f"Category: {equip.get('category', 'N/A')} | "
-        f"Installed: {format_date_short(equip.get('install_date', ''))}"
-    )
-
-    # Get repair history
-    history = get_equipment_history(selected_equip)
-    if not history:
-        st.info("No repair history for this equipment.")
-        return
-
-    df = pd.DataFrame(history)
-    df["actual_cost"] = pd.to_numeric(df.get("actual_cost", 0), errors="coerce").fillna(0)
-
-    # Metrics
+    # Summary metrics
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Repairs", len(df))
+        st.metric("Avg Resolution Time", f"{df['resolution_hours'].mean():.1f} hrs")
     with col2:
-        st.metric("Lifetime Cost", format_currency(df["actual_cost"].sum()))
+        st.metric("Median Resolution Time", f"{df['resolution_hours'].median():.1f} hrs")
     with col3:
-        if len(df) > 0:
-            st.metric("Last Repair", format_date_short(df.iloc[0].get("created_at", "")))
+        st.metric("Resolved Tickets", len(df))
 
-    # Repair timeline
-    st.markdown("### Repair History")
-    for _, row in df.iterrows():
-        cost_str = format_currency(row.get("actual_cost")) if row.get("actual_cost") else "Pending"
-        st.markdown(
-            f"**{format_date_short(row.get('created_at', ''))}** — "
-            f"{row.get('category', '')} | "
-            f"Status: {row.get('status', '').replace('_', ' ').title()} | "
-            f"Cost: {cost_str}"
+    # By category
+    st.markdown("### By Category")
+    cat_summary = (
+        df.groupby("category")["resolution_hours"]
+        .agg(["mean", "median", "count"])
+        .rename(columns={"mean": "Avg Hours", "median": "Median Hours", "count": "Count"})
+        .sort_values("Avg Hours", ascending=False)
+    )
+    cat_summary["Avg Hours"] = cat_summary["Avg Hours"].apply(lambda x: f"{x:.1f}")
+    cat_summary["Median Hours"] = cat_summary["Median Hours"].apply(lambda x: f"{x:.1f}")
+    st.dataframe(cat_summary, use_container_width=True)
+
+    # By urgency
+    st.markdown("### By Urgency Level")
+    urg_summary = (
+        df.groupby("urgency")["resolution_hours"]
+        .agg(["mean", "median", "count"])
+        .rename(columns={"mean": "Avg Hours", "median": "Median Hours", "count": "Count"})
+        .sort_values("Avg Hours")
+    )
+    urg_summary["Avg Hours"] = urg_summary["Avg Hours"].apply(lambda x: f"{x:.1f}")
+    urg_summary["Median Hours"] = urg_summary["Median Hours"].apply(lambda x: f"{x:.1f}")
+    st.dataframe(urg_summary, use_container_width=True)
+
+    # Chart
+    if HAS_PLOTLY:
+        fig = px.histogram(
+            df, x="resolution_hours", nbins=20,
+            title="Distribution of Resolution Times (Hours)",
+            labels={"resolution_hours": "Resolution Time (Hours)", "count": "Tickets"},
         )
-        if row.get("description"):
-            st.caption(f"  {row['description'][:200]}")
+        st.plotly_chart(fig, use_container_width=True)
 
-        # Work orders for this ticket
-        work_orders = row.get("work_orders", []) or []
-        for wo in work_orders:
-            contractor = wo.get("contractors", {}) or {}
-            st.caption(
-                f"  → Work Order: {contractor.get('company_name', 'N/A')} — "
-                f"{format_currency(wo.get('amount'))} ({wo.get('status', '').replace('_', ' ').title()})"
-            )
-        st.markdown("")
+
+def _render_urgency_breakdown(client_id: str):
+    """Render urgency level breakdown."""
+    st.markdown("### Urgency Breakdown")
+
+    breakdown = get_urgency_breakdown(client_id)
+    if not breakdown:
+        st.info("No ticket data available.")
+        return
+
+    # Display as metrics
+    cols = st.columns(len(breakdown))
+    for i, (level, count) in enumerate(breakdown.items()):
+        with cols[i]:
+            st.metric(level, count)
+
+    # Pie chart
+    if HAS_PLOTLY:
+        df = pd.DataFrame([
+            {"Urgency": k, "Count": v} for k, v in breakdown.items()
+        ])
+        fig = px.pie(
+            df, values="Count", names="Urgency",
+            title="Tickets by Urgency Level",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Bar chart
+    if HAS_PLOTLY:
+        df = pd.DataFrame([
+            {"Urgency": k, "Count": v} for k, v in breakdown.items()
+        ])
+        fig = px.bar(
+            df, x="Urgency", y="Count",
+            title="Ticket Count by Urgency Level",
+        )
+        st.plotly_chart(fig, use_container_width=True)
