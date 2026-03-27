@@ -1,8 +1,10 @@
 """Store CRUD — all queries scoped by client_id."""
 
+import streamlit as st
 from database.supabase_client import get_client
 
 
+@st.cache_data(ttl=300)
 def get_stores(client_id: str, active_only: bool = True) -> list[dict]:
     """List stores for a client, ordered by store_number."""
     try:

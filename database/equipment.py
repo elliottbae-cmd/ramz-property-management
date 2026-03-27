@@ -40,7 +40,7 @@ def create_equipment(data: dict) -> dict | None:
     """Insert a new equipment record.
 
     *data* should include: store_id, name, category, and optionally
-    serial_number, make, model, install_date, etc.
+    serial_number, manufacturer, brand, model, install_date, etc.
     """
     try:
         sb = get_client()
@@ -74,7 +74,7 @@ def get_warranties(equipment_id: str) -> list[dict]:
     try:
         sb = get_client()
         result = (
-            sb.table("warranties")
+            sb.table("equipment_warranties")
             .select("*")
             .eq("equipment_id", equipment_id)
             .order("end_date", desc=True)
@@ -93,7 +93,7 @@ def check_active_warranty(equipment_id: str) -> dict | None:
     try:
         sb = get_client()
         result = (
-            sb.table("warranties")
+            sb.table("equipment_warranties")
             .select("*")
             .eq("equipment_id", equipment_id)
             .lte("start_date", "now()")
@@ -109,12 +109,12 @@ def check_active_warranty(equipment_id: str) -> dict | None:
 def create_warranty(data: dict) -> dict | None:
     """Insert a new warranty record.
 
-    *data* should include: equipment_id, provider, start_date, end_date,
-    and optionally coverage_details, contact_info.
+    *data* should include: equipment_id, warranty_provider, start_date, end_date,
+    and optionally coverage_description, contact_phone, contact_email.
     """
     try:
         sb = get_client()
-        result = sb.table("warranties").insert(data).execute()
+        result = sb.table("equipment_warranties").insert(data).execute()
         return result.data[0] if result.data else None
     except Exception:
         return None

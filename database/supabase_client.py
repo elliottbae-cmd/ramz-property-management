@@ -76,7 +76,78 @@ def sign_up(email: str, password: str, full_name: str, user_tier: str = "client"
     return result
 
 
-def sign_in(email: str, password: str):
+def try_restore_session() -> bool:
+    """Attempt to restore a session from a saved refresh token.
+
+    Returns True if session was restored, False otherwise.
+    """
+    import json, os
+    token_file = os.path.join(os.path.dirname(__file__), "..", ".session_token")
+    token_file = os.path.normpath(token_file)
+
+    if not os.path.exists(token_file):
+        return False
+
+    try:
+        with open(token_file, "r") as f:
+            data = json.load(f)
+
+        sb = get_supabase_client()
+        result = sb.auth.refresh_session(data.get("refresh_token"))
+
+        if result.user and result.session:
+            st.session_state["user_id"] = result.user.id
+            st.session_state["access_token"] = result.session.access_token
+            sb.postgrest.auth(result.session.access_token)
+
+            # Save updated refresh token
+            _save_refresh_token(result.session.refresh_token)
+
+            # Load profile
+            try:
+                profile = (
+                    sb.table("users")
+                    .select("*")
+                    .eq("id", result.user.id)
+                    .single()
+                    .execute()
+                )
+                st.session_state["user_profile"] = profile.data
+                _hydrate_client_context(profile.data)
+                return True
+            except Exception:
+                return False
+        return False
+    except Exception:
+        # Token expired or invalid — delete it
+        try:
+            os.remove(token_file)
+        except Exception:
+            pass
+        return False
+
+
+def _save_refresh_token(refresh_token: str):
+    """Save refresh token to a local file for session persistence."""
+    import json, os
+    token_file = os.path.join(os.path.dirname(__file__), "..", ".session_token")
+    token_file = os.path.normpath(token_file)
+    with open(token_file, "w") as f:
+        json.dump({"refresh_token": refresh_token}, f)
+
+
+def _clear_refresh_token():
+    """Remove saved refresh token."""
+    import os
+    token_file = os.path.join(os.path.dirname(__file__), "..", ".session_token")
+    token_file = os.path.normpath(token_file)
+    try:
+        os.remove(token_file)
+    except Exception:
+        pass
+
+
+def sign_in(email: str, password: str, remember: bool = False):
     """Sign in and hydrate session state with user profile."""
     sb = get_supabase_client()
     result = sb.auth.sign_in_with_password({"email": email, "password": password})
@@ -85,6 +156,10 @@ def sign_in(email: str, password: str):
         st.session_state["user_id"] = result.user.id
         st.session_state["access_token"] = result.session.access_token
         sb.postgrest.auth(result.session.access_token)
+
+        # Save refresh token if "Remember me" is checked
+        if remember and result.session:
+            _save_refresh_token(result.session.refresh_token)
 
         try:
             profile = (
@@ -122,6 +197,7 @@ def _hydrate_client_context(profile: dict):
 
 def sign_out():
     """Sign out and clear all session state keys."""
+    _clear_refresh_token()
     sb = get_supabase_client()
     sb.auth.sign_out()
     keys_to_clear = [

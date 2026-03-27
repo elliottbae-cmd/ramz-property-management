@@ -16,5 +16,8 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 
+# Session tokens (remember me)
+.session_token
+
 # Assets
 assets/favicon.ico

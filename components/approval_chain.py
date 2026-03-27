@@ -1,11 +1,29 @@
 """Approval workflow display and action components."""
 
 import streamlit as st
-from database.supabase_client import (
-    get_approvals_for_ticket, update_approval, update_ticket,
-    get_current_user, create_approval_chain
+from database.supabase_client import get_current_user, get_client
+from database.approvals import (
+    approve_ticket, reject_ticket, check_all_approved,
+    initiate_approval_chain, get_pending_approvals,
 )
+from database.tickets import update_ticket
 from utils.constants import APPROVAL_LEVELS
+
+
+def _get_approvals_for_ticket(ticket_id: str) -> list[dict]:
+    """Fetch all approval records for a specific ticket."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("approvals")
+            .select("*")
+            .eq("ticket_id", ticket_id)
+            .order("step_order")
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []
 
 
 def render_approval_actions(ticket_id: str, ticket_status: str):
@@ -14,8 +32,13 @@ def render_approval_actions(ticket_id: str, ticket_status: str):
     if not user:
         return
 
-    user_role = user.get("role", "")
-    approvals = get_approvals_for_ticket(ticket_id)
+    tier = user.get("user_tier", "")
+    if tier == "psp":
+        user_role = user.get("psp_role", "")
+    else:
+        user_role = user.get("client_role", "")
+
+    approvals = _get_approvals_for_ticket(ticket_id)
 
     if not approvals:
         return
@@ -23,7 +46,7 @@ def render_approval_actions(ticket_id: str, ticket_status: str):
     # Find the current user's relevant approval
     my_approval = None
     for a in approvals:
-        if a["role_level"] == user_role and a["status"] == "pending":
+        if a.get("role_required") == user_role and a["status"] == "pending":
             my_approval = a
             break
 
@@ -38,10 +61,11 @@ def render_approval_actions(ticket_id: str, ticket_status: str):
         return
 
     # Check if previous levels are approved (must be sequential)
-    level_idx = APPROVAL_LEVELS.index(my_approval["role_level"]) if my_approval["role_level"] in APPROVAL_LEVELS else -1
+    role_required = my_approval.get("role_required", "")
+    level_idx = APPROVAL_LEVELS.index(role_required) if role_required in APPROVAL_LEVELS else -1
     for i in range(level_idx):
         prev_level = APPROVAL_LEVELS[i]
-        prev_approval = next((a for a in approvals if a["role_level"] == prev_level), None)
+        prev_approval = next((a for a in approvals if a.get("role_required") == prev_level), None)
         if prev_approval and prev_approval["status"] != "approved":
             st.info(f"Waiting for {prev_level.upper()} approval before you can approve.")
             return
@@ -54,27 +78,25 @@ def render_approval_actions(ticket_id: str, ticket_status: str):
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Approve", key=f"approve_{ticket_id}", type="primary", use_container_width=True):
-            update_approval(my_approval["id"], "approved", user["id"], notes)
+            approve_ticket(my_approval["id"], user["id"], notes=notes or None)
             _check_all_approved(ticket_id)
             st.success("Approved!")
             st.rerun()
     with col2:
         if st.button("Reject", key=f"reject_{ticket_id}", use_container_width=True):
-            update_approval(my_approval["id"], "rejected", user["id"], notes)
+            reject_ticket(my_approval["id"], user["id"], notes=notes or None)
             update_ticket(ticket_id, {"status": "rejected"})
             st.error("Rejected.")
             st.rerun()
 
 
-def initiate_approval(ticket_id: str):
+def initiate_approval(ticket_id: str, client_id: str, estimated_cost: float):
     """Create the approval chain and update ticket status."""
-    create_approval_chain(ticket_id)
+    initiate_approval_chain(ticket_id, client_id, estimated_cost)
     update_ticket(ticket_id, {"status": "pending_approval"})
 
 
 def _check_all_approved(ticket_id: str):
     """Check if all approval levels are approved and update ticket status."""
-    approvals = get_approvals_for_ticket(ticket_id)
-    all_approved = all(a["status"] == "approved" for a in approvals)
-    if all_approved:
+    if check_all_approved(ticket_id):
         update_ticket(ticket_id, {"status": "approved"})

@@ -57,7 +57,7 @@ def get_client_summary(client_id: str, date_range: tuple | None = None) -> dict:
             sb.table("tickets")
             .select("id", count="exact")
             .eq("client_id", client_id)
-            .in_("status", ["submitted", "assigned", "pending_approval", "approved", "in_progress"])
+            .in_("status", ["submitted", "troubleshooting", "warranty_check", "pending_approval", "approved", "assigned", "in_progress"])
             .execute()
         )
         open_tickets = open_result.count or 0

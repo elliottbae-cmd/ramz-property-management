@@ -12,7 +12,7 @@ def get_tips(equipment_type: str | None = None,
             sb.table("knowledge_base")
             .select("*")
             .eq("is_active", True)
-            .order("created_at", desc=True)
+            .order("id", desc=True)
         )
         if equipment_type:
             query = query.eq("equipment_type", equipment_type)
@@ -26,8 +26,8 @@ def get_tips(equipment_type: str | None = None,
 def create_tip(data: dict) -> dict | None:
     """Insert a new KB tip.
 
-    *data* should include: title, content, and optionally equipment_type,
-    issue_category, author_id.
+    *data* should include: title, steps, and optionally equipment_type,
+    issue_category, difficulty_level, created_by.
     """
     try:
         sb = get_client()
@@ -59,12 +59,12 @@ def update_tip(tip_id: str, data: dict) -> dict | None:
 def record_feedback(data: dict) -> dict | None:
     """Record user feedback (helpful / not helpful) on a KB tip.
 
-    *data* should include: tip_id, user_id, is_helpful (bool), and
-    optionally comment.
+    *data* should include: knowledge_base_id, user_id, was_helpful (bool), and
+    optionally ticket_id, comment.
     """
     try:
         sb = get_client()
-        result = sb.table("kb_feedback").insert(data).execute()
+        result = sb.table("knowledge_base_feedback").insert(data).execute()
         return result.data[0] if result.data else None
     except Exception:
         return None
@@ -78,13 +78,13 @@ def get_tip_stats(tip_id: str) -> dict:
     try:
         sb = get_client()
         result = (
-            sb.table("kb_feedback")
-            .select("is_helpful")
-            .eq("tip_id", tip_id)
+            sb.table("knowledge_base_feedback")
+            .select("was_helpful")
+            .eq("knowledge_base_id", tip_id)
             .execute()
         )
         rows = result.data or []
-        helpful = sum(1 for r in rows if r.get("is_helpful"))
+        helpful = sum(1 for r in rows if r.get("was_helpful"))
         not_helpful = len(rows) - helpful
         return {"helpful": helpful, "not_helpful": not_helpful}
     except Exception:

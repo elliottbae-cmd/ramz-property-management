@@ -23,9 +23,9 @@ def get_contractors(filters: dict | None = None) -> list[dict]:
             if filters.get("trade"):
                 query = query.contains("trades", [filters["trade"]])
             if filters.get("state"):
-                query = query.eq("state", filters["state"])
+                query = query.contains("service_states", [filters["state"]])
             if filters.get("city"):
-                query = query.eq("city", filters["city"])
+                query = query.contains("service_cities", [filters["city"]])
             if filters.get("is_preferred") is not None:
                 query = query.eq("is_preferred", filters["is_preferred"])
         else:
@@ -56,7 +56,7 @@ def create_contractor(data: dict) -> dict | None:
     """Insert a new contractor.
 
     *data* should include: company_name, and optionally trades, phone,
-    email, state, city, service_regions, etc.
+    email, trades, service_cities, service_states, service_zip_codes, etc.
     """
     try:
         sb = get_client()
@@ -91,9 +91,9 @@ def get_contractor_reviews(contractor_id: str) -> list[dict]:
         sb = get_client()
         result = (
             sb.table("contractor_reviews")
-            .select("*, users(full_name)")
+            .select("*, users:reviewed_by(full_name)")
             .eq("contractor_id", contractor_id)
-            .order("created_at", desc=True)
+            .order("id", desc=True)
             .execute()
         )
         return result.data or []
@@ -104,7 +104,8 @@ def get_contractor_reviews(contractor_id: str) -> list[dict]:
 def add_review(data: dict) -> dict | None:
     """Add a review for a contractor and recalculate avg_rating.
 
-    *data* should include: contractor_id, user_id, rating, and optionally comment.
+    *data* should include: contractor_id, reviewed_by, rating, and optionally
+    ticket_id, timeliness, quality, communication, comment.
     """
     try:
         sb = get_client()
@@ -121,7 +122,7 @@ def add_review(data: dict) -> dict | None:
         if reviews:
             avg = sum(r["rating"] for r in reviews) / len(reviews)
             sb.table("contractors").update(
-                {"avg_rating": round(avg, 2)}
+                {"avg_rating": round(avg, 2), "total_jobs": len(reviews)}
             ).eq("id", data["contractor_id"]).execute()
 
         return result.data[0] if result.data else None

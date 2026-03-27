@@ -90,7 +90,7 @@ def render_ticket_detail(ticket: dict, photos: list = None, comments: list = Non
         st.markdown("**Approval Chain:**")
         for approval in approvals:
             approver = approval.get("users", {}) or {}
-            level = approval.get("role_level", "").upper()
+            level = approval.get("role_required", "").upper()
             a_status = approval.get("status", "pending")
             icon = {"approved": "✅", "rejected": "❌", "pending": "⏳"}.get(a_status, "⏳")
             approver_name = approver.get("full_name", "Awaiting approver")

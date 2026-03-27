@@ -93,11 +93,19 @@ def get_all_clients() -> list[dict]:
     if not user or user.get("user_tier") != "psp":
         return []
 
+    psp_role = user.get("psp_role", "")
+    user_id = user.get("id", "")
+    return _fetch_all_clients(psp_role, user_id)
+
+
+@st.cache_data(ttl=300)
+def _fetch_all_clients(psp_role: str, user_id: str) -> list[dict]:
+    """Cached helper — fetch clients from the database."""
     try:
         sb = get_client()
 
         # PSP admin sees everything
-        if user.get("psp_role") == "admin":
+        if psp_role == "admin":
             result = (
                 sb.table("clients")
                 .select("*")
@@ -110,7 +118,7 @@ def get_all_clients() -> list[dict]:
         access = (
             sb.table("psp_client_access")
             .select("client_id, clients(*)")
-            .eq("psp_user_id", user["id"])
+            .eq("psp_user_id", user_id)
             .execute()
         )
         return [row["clients"] for row in (access.data or []) if row.get("clients")]

@@ -92,7 +92,7 @@ def render():
     with m2:
         in_progress = sum(
             1 for t in tickets
-            if t["status"] in ("assigned", "pending_approval", "approved", "in_progress")
+            if t["status"] in ("troubleshooting", "warranty_check", "assigned", "pending_approval", "approved", "in_progress")
         )
         st.metric("In Progress", in_progress)
     with m3:
@@ -266,7 +266,7 @@ def _get_ticket_photos(ticket_id: str) -> list[dict]:
             sb.table("ticket_photos")
             .select("*")
             .eq("ticket_id", ticket_id)
-            .order("created_at")
+            .order("uploaded_at")
             .execute()
         )
         return result.data or []
@@ -282,7 +282,7 @@ def _get_ticket_approvals(ticket_id: str) -> list[dict]:
             sb.table("approvals")
             .select("*, users:approver_id(full_name)")
             .eq("ticket_id", ticket_id)
-            .order("sequence")
+            .order("step_order")
             .execute()
         )
         return result.data or []

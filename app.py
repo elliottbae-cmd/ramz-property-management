@@ -63,6 +63,7 @@ if tier == "psp":
     if can_access_psp_admin():
         nav_items["PSP Admin"] = "psp_admin"
 
+    nav_items["Submit Repair Request"] = "submit_request"
     nav_items["Ticket Dashboard"] = "ticket_dashboard"
 
     if can_approve():
@@ -76,6 +77,7 @@ if tier == "psp":
 
     nav_items["Knowledge Base Admin"] = "knowledge_base_admin"
     nav_items["Warranty Management"] = "warranty_management"
+    nav_items["Admin Settings"] = "admin_settings"
 
 else:
     # ---- Client Navigation ----
@@ -166,3 +168,7 @@ if selected:
     elif page_key == "client_settings":
         from pages import client_settings
         client_settings.render()
+
+    elif page_key == "admin_settings":
+        from pages import admin_settings
+        admin_settings.render()

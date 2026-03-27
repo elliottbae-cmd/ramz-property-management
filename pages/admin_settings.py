@@ -38,8 +38,8 @@ def render():
     if client:
         st.caption(f"Managing: {client.get('name', 'Unknown')}")
 
-    tab_users, tab_stores, tab_categories, tab_urgency, tab_approvals = st.tabs(
-        ["Users", "Stores", "Form Categories", "Urgency Levels", "Approval Settings"]
+    tab_users, tab_stores, tab_categories, tab_urgency, tab_approvals, tab_equipment = st.tabs(
+        ["Users", "Stores", "Form Categories", "Urgency Levels", "Approval Settings", "Equipment Options"]
     )
 
     with tab_users:
@@ -56,6 +56,9 @@ def render():
 
     with tab_approvals:
         _render_approval_settings(client_id)
+
+    with tab_equipment:
+        _render_equipment_options(client_id)
 
 
 # ------------------------------------------------------------------
@@ -370,11 +373,12 @@ def _render_approval_settings(client_id: str):
     if st.button("Update Threshold", use_container_width=True):
         try:
             sb = get_client()
-            # Upsert client_settings
-            sb.table("client_settings").upsert({
+            user = get_current_user()
+            sb.table("approval_thresholds").insert({
                 "client_id": client_id,
-                "approval_threshold": new_threshold,
-            }, on_conflict="client_id").execute()
+                "threshold_amount": new_threshold,
+                "updated_by": user["id"] if user else None,
+            }).execute()
             st.success(f"Threshold updated to {format_currency(new_threshold)}")
             st.rerun()
         except Exception as e:
@@ -390,29 +394,164 @@ def _render_approval_settings(client_id: str):
     else:
         for step in config:
             st.markdown(
-                f"**Step {step.get('sequence', '?')}:** "
-                f"Role Level = {step.get('role_level', 'N/A').upper()}"
+                f"**Step {step.get('step_order', '?')}:** "
+                f"Role = {step.get('role_required', 'N/A').upper()}"
             )
 
     # Add approval step
     with st.expander("+ Add Approval Step"):
         with st.form("add_approval_step"):
-            role_level = st.selectbox(
-                "Role Level",
+            role_required = st.selectbox(
+                "Role Required",
                 CLIENT_ROLES,
                 format_func=lambda x: CLIENT_ROLE_LABELS.get(x, x),
             )
-            sequence = st.number_input("Sequence", min_value=1, value=len(config) + 1)
+            step_order = st.number_input("Step Order", min_value=1, value=len(config) + 1)
 
             if st.form_submit_button("Add Step", use_container_width=True):
                 try:
                     sb = get_client()
-                    sb.table("approval_configs").insert({
+                    sb.table("approval_chain_config").insert({
                         "client_id": client_id,
-                        "role_level": role_level,
-                        "sequence": sequence,
+                        "role_required": role_required,
+                        "step_order": step_order,
                     }).execute()
-                    st.success(f"Approval step added for {CLIENT_ROLE_LABELS.get(role_level, role_level)}!")
+                    st.success(f"Approval step added for {CLIENT_ROLE_LABELS.get(role_required, role_required)}!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error adding approval step: {str(e)}")
+
+
+# ------------------------------------------------------------------
+# Equipment Options by Brand
+# ------------------------------------------------------------------
+
+def _render_equipment_options(client_id: str):
+    st.markdown("### Equipment Options by Brand")
+    st.caption("Manage the equipment dropdown options that appear when submitting a ticket. Filtered by store brand and category.")
+
+    # Get existing options
+    try:
+        sb = get_client()
+        result = (
+            sb.table("brand_equipment_options")
+            .select("*")
+            .eq("client_id", client_id)
+            .order("brand")
+            .order("category")
+            .order("display_order")
+            .execute()
+        )
+        options = result.data or []
+    except Exception:
+        options = []
+
+    # Get unique brands from stores
+    try:
+        stores_result = (
+            sb.table("stores")
+            .select("brand")
+            .eq("client_id", client_id)
+            .execute()
+        )
+        brands = sorted(set(s["brand"] for s in (stores_result.data or []) if s.get("brand")))
+    except Exception:
+        brands = []
+
+    # Get categories
+    try:
+        cat_result = (
+            sb.table("form_categories")
+            .select("name")
+            .or_(f"client_id.eq.{client_id},client_id.is.null")
+            .eq("is_active", True)
+            .order("display_order")
+            .execute()
+        )
+        categories = [c["name"] for c in (cat_result.data or [])]
+    except Exception:
+        categories = []
+
+    # Add new equipment option
+    with st.expander("+ Add Equipment Option"):
+        with st.form("add_equipment_option"):
+            eq_brand = st.selectbox("Brand *", brands if brands else ["No brands found"])
+            eq_category = st.selectbox("Category *", categories if categories else ["No categories found"])
+            eq_name = st.text_input("Equipment Name *", placeholder="e.g., Fryer, Grill, Ice Machine")
+            eq_order = st.number_input("Display Order", min_value=0, value=len(options) + 1)
+
+            if st.form_submit_button("Add Equipment Option", use_container_width=True):
+                if not eq_name:
+                    st.error("Equipment name is required.")
+                elif eq_brand == "No brands found" or eq_category == "No categories found":
+                    st.error("Please ensure brands and categories exist first.")
+                else:
+                    try:
+                        sb = get_client()
+                        sb.table("brand_equipment_options").insert({
+                            "client_id": client_id,
+                            "brand": eq_brand,
+                            "category": eq_category,
+                            "equipment_name": eq_name,
+                            "display_order": eq_order,
+                        }).execute()
+                        st.success(f"'{eq_name}' added to {eq_brand} / {eq_category}!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error adding equipment option: {str(e)}")
+
+    # Filter view
+    if brands:
+        filter_brand = st.selectbox("Filter by Brand", ["All Brands"] + brands, key="eq_filter_brand")
+    else:
+        filter_brand = "All Brands"
+
+    # Display grouped by brand and category
+    filtered = options
+    if filter_brand != "All Brands":
+        filtered = [o for o in options if o.get("brand") == filter_brand]
+
+    if not filtered:
+        st.info("No equipment options configured yet. Add some above.")
+        return
+
+    # Group by brand then category
+    current_brand = None
+    current_category = None
+    for opt in filtered:
+        brand = opt.get("brand", "Unknown")
+        category = opt.get("category", "Uncategorized")
+
+        if brand != current_brand:
+            st.markdown(f"---")
+            st.markdown(f"#### {brand}")
+            current_brand = brand
+            current_category = None
+
+        if category != current_category:
+            st.markdown(f"**{category}**")
+            current_category = category
+
+        col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            active_label = "" if opt.get("is_active", True) else " *(INACTIVE)*"
+            st.write(f"  {opt['equipment_name']}{active_label}")
+        with col2:
+            st.caption(f"Order: {opt.get('display_order', 0)}")
+        with col3:
+            if opt.get("is_active", True):
+                if st.button("Disable", key=f"dis_eq_{opt['id']}"):
+                    try:
+                        sb = get_client()
+                        sb.table("brand_equipment_options").update({"is_active": False}).eq("id", opt["id"]).execute()
+                        st.rerun()
+                    except Exception:
+                        st.error("Failed to disable.")
+            else:
+                if st.button("Enable", key=f"en_eq_{opt['id']}"):
+                    try:
+                        sb = get_client()
+                        sb.table("brand_equipment_options").update({"is_active": True}).eq("id", opt["id"]).execute()
+                        st.rerun()
+                    except Exception:
+                        st.error("Failed to enable.")

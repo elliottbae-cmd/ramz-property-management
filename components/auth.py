@@ -3,6 +3,7 @@
 import streamlit as st
 from database.supabase_client import (
     sign_in, sign_up, sign_out, is_logged_in, get_current_user, is_psp_user,
+    try_restore_session,
 )
 from database.tenant import get_all_clients, get_current_client
 from utils.constants import ROLE_LABELS, PSP_ROLE_LABELS, CLIENT_ROLE_LABELS
@@ -18,6 +19,11 @@ _PSP_PRIMARY_DARK = "#A6863A"
 def require_auth():
     """Gate that requires authentication. Shows login if not authenticated."""
     if not is_logged_in():
+        # Try to restore a saved session first
+        if try_restore_session():
+            _post_login_setup()
+            st.rerun()
+            return
         render_login_page()
         st.stop()
 
@@ -51,6 +57,7 @@ def render_login_page():
         with st.form("login_form"):
             email = st.text_input("Email", placeholder="your.email@company.com")
             password = st.text_input("Password", type="password")
+            remember = st.checkbox("Remember me", value=True)
             submitted = st.form_submit_button("Sign In", use_container_width=True)
 
             if submitted:
@@ -58,7 +65,7 @@ def render_login_page():
                     st.error("Please enter both email and password.")
                 else:
                     try:
-                        result = sign_in(email, password)
+                        result = sign_in(email, password, remember=remember)
                         if result.user:
                             # Post-login hydration
                             _post_login_setup()

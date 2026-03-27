@@ -12,7 +12,6 @@ from database.contractors import (
 from theme.branding import render_header
 from utils.constants import TRADE_TYPES, US_STATES
 from utils.permissions import can_manage_contractors
-from utils.helpers import format_date
 
 
 def render():
@@ -93,7 +92,7 @@ def render():
                     <strong>Trades:</strong> {trades_str}
                 </div>
                 <div style="font-size: 0.85rem; color: #757575;">
-                    <strong>Location:</strong> {c.get('city', 'N/A')}, {c.get('state', 'N/A')}
+                    <strong>States:</strong> {', '.join(c.get('service_states', []) or ['N/A'])}
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -112,15 +111,14 @@ def _render_add_contractor_form():
         email = st.text_input("Email")
         trades = st.multiselect("Trades *", TRADE_TYPES)
 
-        col_city, col_state = st.columns(2)
-        with col_city:
-            city = st.text_input("City")
-        with col_state:
-            state = st.selectbox("State", [""] + US_STATES, key="new_contractor_state")
-
-        service_regions = st.text_input(
-            "Service Regions (comma-separated)",
-            placeholder="Nebraska, Missouri, Kansas",
+        service_cities = st.text_input(
+            "Service Cities (comma-separated)",
+            placeholder="Omaha, Lincoln, Kansas City",
+        )
+        service_states = st.multiselect("Service States", US_STATES, key="new_contractor_states")
+        service_zips = st.text_input(
+            "Service ZIP Codes (comma-separated)",
+            placeholder="68101, 68102",
         )
         is_preferred = st.checkbox("Preferred Vendor")
         notes = st.text_area("Notes")
@@ -129,16 +127,17 @@ def _render_add_contractor_form():
             if not company or not trades:
                 st.error("Company name and at least one trade are required.")
             else:
-                region_list = [r.strip() for r in service_regions.split(",") if r.strip()] if service_regions else []
+                city_list = [c.strip() for c in service_cities.split(",") if c.strip()] if service_cities else []
+                zip_list = [z.strip() for z in service_zips.split(",") if z.strip()] if service_zips else []
                 result = create_contractor({
                     "company_name": company,
                     "contact_name": contact or None,
                     "phone": phone or None,
                     "email": email or None,
                     "trades": trades,
-                    "city": city or None,
-                    "state": state or None,
-                    "service_regions": region_list,
+                    "service_cities": city_list,
+                    "service_states": service_states,
+                    "service_zip_codes": zip_list,
                     "is_preferred": is_preferred,
                     "notes": notes or None,
                 })
@@ -173,10 +172,12 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
         trades = contractor.get("trades", []) or []
         trades_str = ", ".join(trades) if isinstance(trades, list) else str(trades)
         st.markdown(f"**Trades:** {trades_str}")
-        st.markdown(f"**Location:** {contractor.get('city', 'N/A')}, {contractor.get('state', 'N/A')}")
-        regions = contractor.get("service_regions", []) or []
-        regions_str = ", ".join(regions) if isinstance(regions, list) else str(regions)
-        st.markdown(f"**Service Regions:** {regions_str}")
+        cities = contractor.get("service_cities", []) or []
+        cities_str = ", ".join(cities) if isinstance(cities, list) else str(cities)
+        st.markdown(f"**Service Cities:** {cities_str or 'N/A'}")
+        states = contractor.get("service_states", []) or []
+        states_str = ", ".join(states) if isinstance(states, list) else str(states)
+        st.markdown(f"**Service States:** {states_str or 'N/A'}")
         rating = contractor.get("avg_rating", 0) or 0
         st.markdown(f"**Rating:** {rating:.1f}/5")
 
@@ -200,17 +201,20 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
                     "Trades", TRADE_TYPES,
                     default=contractor.get("trades", []) or [],
                 )
-                col_c, col_s = st.columns(2)
-                with col_c:
-                    city_val = st.text_input("City", value=contractor.get("city", "") or "")
-                with col_s:
-                    current_state = contractor.get("state", "") or ""
-                    state_idx = US_STATES.index(current_state) + 1 if current_state in US_STATES else 0
-                    state_val = st.selectbox("State", [""] + US_STATES, index=state_idx, key="edit_state")
-
-                regions_val = st.text_input(
-                    "Service Regions",
-                    value=", ".join(contractor.get("service_regions", []) or []),
+                cities_val = st.text_input(
+                    "Service Cities (comma-separated)",
+                    value=", ".join(contractor.get("service_cities", []) or []),
+                    key="edit_cities",
+                )
+                states_val = st.multiselect(
+                    "Service States", US_STATES,
+                    default=contractor.get("service_states", []) or [],
+                    key="edit_states",
+                )
+                zips_val = st.text_input(
+                    "Service ZIP Codes (comma-separated)",
+                    value=", ".join(contractor.get("service_zip_codes", []) or []),
+                    key="edit_zips",
                 )
                 is_preferred = st.checkbox(
                     "Preferred Vendor",
@@ -219,16 +223,17 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
                 notes = st.text_area("Notes", value=contractor.get("notes", "") or "")
 
                 if st.form_submit_button("Save Changes", use_container_width=True):
-                    region_list = [r.strip() for r in regions_val.split(",") if r.strip()] if regions_val else []
+                    city_list = [c.strip() for c in cities_val.split(",") if c.strip()] if cities_val else []
+                    zip_list = [z.strip() for z in zips_val.split(",") if z.strip()] if zips_val else []
                     result = update_contractor(contractor_id, {
                         "company_name": company,
                         "contact_name": contact or None,
                         "phone": phone or None,
                         "email": email_val or None,
                         "trades": trades_val,
-                        "city": city_val or None,
-                        "state": state_val or None,
-                        "service_regions": region_list,
+                        "service_cities": city_list,
+                        "service_states": states_val,
+                        "service_zip_codes": zip_list,
                         "is_preferred": is_preferred,
                         "notes": notes or None,
                     })
@@ -246,22 +251,16 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
                     placeholder="e.g., poor quality, went out of business",
                 )
                 if st.button("Deactivate Contractor", use_container_width=True):
-                    update_contractor(contractor_id, {
-                        "is_active": False,
-                        "deactivated_reason": reason or None,
-                    })
+                    update_data = {"is_active": False}
+                    if reason:
+                        update_data["notes"] = f"[DEACTIVATED] {reason}"
+                    update_contractor(contractor_id, update_data)
                     st.success("Contractor deactivated.")
                     st.rerun()
             else:
-                st.info(
-                    f"This contractor was deactivated. "
-                    f"Reason: {contractor.get('deactivated_reason', 'N/A')}"
-                )
+                st.info("This contractor is currently inactive.")
                 if st.button("Reactivate Contractor", type="primary", use_container_width=True):
-                    update_contractor(contractor_id, {
-                        "is_active": True,
-                        "deactivated_reason": None,
-                    })
+                    update_contractor(contractor_id, {"is_active": True})
                     st.success("Contractor reactivated!")
                     st.rerun()
 
@@ -277,8 +276,7 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
             r_rating = review.get("rating", 0)
             st.markdown(
                 f"**{reviewer.get('full_name', 'Anonymous')}** -- "
-                f"{r_rating}/5 "
-                f"({format_date(review.get('created_at', ''))})"
+                f"{r_rating}/5"
             )
             if review.get("comment"):
                 st.markdown(f"> {review['comment']}")
@@ -295,7 +293,7 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
             if st.form_submit_button("Submit Review", use_container_width=True):
                 result = add_review({
                     "contractor_id": contractor_id,
-                    "user_id": user["id"],
+                    "reviewed_by": user["id"],
                     "rating": rating,
                     "comment": comment or None,
                 })

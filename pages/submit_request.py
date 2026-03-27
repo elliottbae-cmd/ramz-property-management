@@ -16,19 +16,21 @@ from components.photo_upload import render_photo_upload, save_photos
 from theme.branding import render_header
 
 
+@st.cache_data(ttl=300)
 def _get_form_categories(client_id: str | None) -> list[dict]:
     """Load form categories for the client (or global defaults)."""
     try:
         sb = get_client()
-        query = (
-            sb.table("form_categories")
-            .select("*")
-            .eq("is_active", True)
-            .order("display_order")
-        )
-        # Client-specific or global (client_id IS NULL)
+        # Client-specific first
         if client_id:
-            result_client = query.eq("client_id", client_id).execute()
+            result_client = (
+                sb.table("form_categories")
+                .select("*")
+                .eq("is_active", True)
+                .eq("client_id", client_id)
+                .order("display_order")
+                .execute()
+            )
             if result_client.data:
                 return result_client.data
         # Fall back to global categories
@@ -45,18 +47,20 @@ def _get_form_categories(client_id: str | None) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=300)
 def _get_form_urgency_levels(client_id: str | None) -> list[dict]:
     """Load urgency levels for the client (or global defaults)."""
     try:
         sb = get_client()
-        query = (
-            sb.table("form_urgency_levels")
-            .select("*")
-            .eq("is_active", True)
-            .order("display_order")
-        )
         if client_id:
-            result_client = query.eq("client_id", client_id).execute()
+            result_client = (
+                sb.table("form_urgency_levels")
+                .select("*")
+                .eq("is_active", True)
+                .eq("client_id", client_id)
+                .order("display_order")
+                .execute()
+            )
             if result_client.data:
                 return result_client.data
         result_global = (
@@ -130,57 +134,72 @@ def render():
     selected_category = next((c for c in categories if c["id"] == selected_category_id), {})
     category_name = selected_category.get("name", "")
 
-    # ---- Equipment ----
-    equipment_list = get_equipment(selected_store_id) if selected_store_id else []
-    equipment_options = {"": "-- Select Equipment --", "new": "+ Add New Equipment"}
-    for eq in equipment_list:
-        label = eq["name"]
-        if eq.get("serial_number"):
-            label += f" (SN: {eq['serial_number']})"
-        equipment_options[eq["id"]] = label
+    # ---- Equipment Type (from brand_equipment_options) ----
+    # Look up the store's brand
+    selected_store = next((s for s in stores if s["id"] == selected_store_id), {})
+    store_brand = selected_store.get("brand", "")
 
-    selected_equipment_id = st.selectbox(
-        "Equipment",
-        options=list(equipment_options.keys()),
-        format_func=lambda x: equipment_options[x],
+    # Load equipment options for this brand + category
+    brand_equip_options = []
+    if store_brand and category_name:
+        try:
+            sb = get_client()
+            result = (
+                sb.table("brand_equipment_options")
+                .select("*")
+                .eq("client_id", client_id)
+                .eq("brand", store_brand)
+                .eq("category", category_name)
+                .eq("is_active", True)
+                .order("display_order")
+                .execute()
+            )
+            brand_equip_options = result.data or []
+        except Exception:
+            brand_equip_options = []
+
+    equipment_choices = {"": "-- Select Equipment --"}
+    for opt in brand_equip_options:
+        equipment_choices[opt["equipment_name"]] = opt["equipment_name"]
+    equipment_choices["other"] = "Other (not listed)"
+
+    selected_equipment_type = st.selectbox(
+        "Equipment Type",
+        options=list(equipment_choices.keys()),
+        format_func=lambda x: equipment_choices[x],
+        help="Select the type of equipment that needs repair",
     )
 
-    # New equipment form
+    # Equipment name (from selection or manual entry)
     new_equipment_name = None
     new_manufacturer = None
     new_brand = None
     new_serial = None
 
-    if selected_equipment_id == "new":
+    if selected_equipment_type == "other":
         new_equipment_name = st.text_input("Equipment Name *", placeholder="e.g., Walk-in Cooler")
+    elif selected_equipment_type:
+        new_equipment_name = selected_equipment_type
 
+    # Show manufacturer/brand/serial fields when equipment is selected
+    if selected_equipment_type and selected_equipment_type != "":
+        st.caption("Enter equipment details (optional — select N/A if not applicable)")
         col_m, col_b, col_s = st.columns(3)
         with col_m:
             na_manufacturer = st.checkbox("N/A", key="na_mfg", help="Check if not applicable")
             new_manufacturer = "" if na_manufacturer else st.text_input(
-                "Manufacturer", placeholder="e.g., Carrier", key="mfg_input"
+                "Make/Manufacturer", placeholder="e.g., Henny Penny", key="mfg_input"
             )
         with col_b:
             na_brand = st.checkbox("N/A", key="na_brand", help="Check if not applicable")
             new_brand = "" if na_brand else st.text_input(
-                "Brand", placeholder="e.g., Trane", key="brand_input"
+                "Model", placeholder="e.g., OFE-322", key="brand_input"
             )
         with col_s:
             na_serial = st.checkbox("N/A", key="na_serial", help="Check if not applicable")
             new_serial = "" if na_serial else st.text_input(
                 "Serial Number", placeholder="e.g., ABC-12345", key="serial_input"
             )
-    elif selected_equipment_id and selected_equipment_id != "":
-        # Show existing equipment info
-        selected_eq = next((eq for eq in equipment_list if eq["id"] == selected_equipment_id), None)
-        if selected_eq:
-            eq_cols = st.columns(3)
-            with eq_cols[0]:
-                st.caption(f"Manufacturer: {selected_eq.get('make', 'N/A')}")
-            with eq_cols[1]:
-                st.caption(f"Brand: {selected_eq.get('model', 'N/A')}")
-            with eq_cols[2]:
-                st.caption(f"Serial: {selected_eq.get('serial_number', 'N/A')}")
 
     # ---- Description ----
     description = st.text_area(
@@ -231,7 +250,7 @@ def render():
             errors.append("Please select a store.")
         if not description or not description.strip():
             errors.append("Please describe the issue.")
-        if selected_equipment_id == "new" and not new_equipment_name:
+        if selected_equipment_type == "other" and not new_equipment_name:
             errors.append("Please enter the equipment name.")
 
         if errors:
@@ -240,9 +259,9 @@ def render():
             return
 
         try:
-            # Create new equipment if needed
+            # Create equipment record for this ticket
             equipment_id = None
-            if selected_equipment_id == "new":
+            if new_equipment_name:
                 eq_data = {
                     "store_id": selected_store_id,
                     "name": new_equipment_name,
@@ -251,18 +270,13 @@ def render():
                 if new_serial:
                     eq_data["serial_number"] = new_serial
                 if new_manufacturer:
-                    eq_data["make"] = new_manufacturer
+                    eq_data["manufacturer"] = new_manufacturer
                 if new_brand:
-                    eq_data["model"] = new_brand
+                    eq_data["brand"] = new_brand
 
                 new_eq = create_equipment(eq_data)
                 if new_eq:
                     equipment_id = new_eq["id"]
-                else:
-                    st.error("Failed to create equipment record.")
-                    return
-            elif selected_equipment_id:
-                equipment_id = selected_equipment_id
 
             # Build ticket data
             ticket_data = {

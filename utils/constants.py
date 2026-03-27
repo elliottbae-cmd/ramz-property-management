@@ -51,9 +51,11 @@ APPROVAL_LEVELS = ["gm", "dm", "doo", "vp", "coo"]
 
 TICKET_STATUSES = [
     "submitted",
-    "assigned",
+    "troubleshooting",
+    "warranty_check",
     "pending_approval",
     "approved",
+    "assigned",
     "in_progress",
     "completed",
     "closed",
@@ -62,9 +64,11 @@ TICKET_STATUSES = [
 
 STATUS_LABELS = {
     "submitted": "Submitted",
-    "assigned": "Assigned",
+    "troubleshooting": "Troubleshooting",
+    "warranty_check": "Warranty Check",
     "pending_approval": "Pending Approval",
     "approved": "Approved",
+    "assigned": "Assigned",
     "in_progress": "In Progress",
     "completed": "Completed",
     "closed": "Closed",
@@ -72,14 +76,16 @@ STATUS_LABELS = {
 }
 
 STATUS_COLORS = {
-    "submitted": "#1B3A4B",      # Navy (info)
-    "assigned": "#9C27B0",       # Purple
+    "submitted": "#1B3A4B",         # Navy (info)
+    "troubleshooting": "#795548",   # Brown
+    "warranty_check": "#607D8B",    # Blue-gray
     "pending_approval": "#FF9800",  # Orange (warning)
-    "approved": "#4CAF50",       # Green (success)
-    "in_progress": "#2196F3",    # Blue
-    "completed": "#4CAF50",      # Green
-    "closed": "#9E9E9E",         # Gray
-    "rejected": "#F44336",       # Red (danger)
+    "approved": "#4CAF50",          # Green (success)
+    "assigned": "#9C27B0",          # Purple
+    "in_progress": "#2196F3",       # Blue
+    "completed": "#4CAF50",         # Green
+    "closed": "#9E9E9E",            # Gray
+    "rejected": "#F44336",          # Red (danger)
 }
 
 # ------------------------------------------------------------------
@@ -104,18 +110,20 @@ URGENCY_COLORS = {
 # Approval statuses
 # ------------------------------------------------------------------
 
-APPROVAL_STATUSES = ["pending", "approved", "rejected"]
+APPROVAL_STATUSES = ["pending", "approved", "rejected", "skipped"]
 
 APPROVAL_STATUS_LABELS = {
     "pending": "Pending",
     "approved": "Approved",
     "rejected": "Rejected",
+    "skipped": "Skipped",
 }
 
 APPROVAL_STATUS_COLORS = {
     "pending": "#FF9800",
     "approved": "#4CAF50",
     "rejected": "#F44336",
+    "skipped": "#9E9E9E",
 }
 
 # ------------------------------------------------------------------

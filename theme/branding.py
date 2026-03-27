@@ -78,16 +78,6 @@ def _lighten(hex_color: str, factor: float = 0.7) -> str:
 # Convenience color accessors (used by other modules)
 # ------------------------------------------------------------------
 
-@property
-def PRIMARY():
-    return get_brand()["primary_color"]
-
-
-@property
-def SECONDARY():
-    return get_brand()["secondary_color"]
-
-
 # Provide module-level constants for backward compat import
 # These are evaluated once at import time with PSP defaults
 PRIMARY = _PSP_DEFAULTS["primary_color"]
