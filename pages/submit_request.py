@@ -12,6 +12,7 @@ from database.equipment import get_equipment, create_equipment
 from database.tickets import create_ticket
 from database.approvals import initiate_approval_chain, get_threshold
 from database.audit import log_action
+from database.cost_estimation import get_cost_estimate_details
 from components.photo_upload import render_photo_upload, save_photos
 from theme.branding import render_header
 
@@ -201,6 +202,21 @@ def render():
                 "Serial Number", placeholder="e.g., ABC-12345", key="serial_input"
             )
 
+    # ---- Cost Estimation Hint ----
+    cost_details = None
+    if category_name and client_id:
+        equip_for_estimate = new_equipment_name if new_equipment_name else None
+        cost_details = get_cost_estimate_details(client_id, category_name, equip_for_estimate)
+        if cost_details:
+            est = cost_details["estimate"]
+            if est["count"] >= 3:
+                st.info(f"{cost_details['display']}\n\n*Based on historical repair data*")
+            elif est["count"] >= 1:
+                st.info(
+                    f"{cost_details['display']}\n\n"
+                    "*Limited data -- estimate may not be representative*"
+                )
+
     # ---- Description ----
     description = st.text_area(
         "What's going on? *",
@@ -231,6 +247,12 @@ def render():
                 st.caption(f"Target response time: {hours} hour(s)")
 
     # ---- Estimated Cost (optional) ----
+    if cost_details:
+        est = cost_details["estimate"]
+        st.caption(
+            f"Suggested range: ${est['min']:,.0f} - ${est['max']:,.0f} "
+            f"based on {est['count']} similar repair{'s' if est['count'] != 1 else ''}"
+        )
     estimated_cost = st.number_input(
         "Estimated Cost ($)", min_value=0.0, step=50.0, value=0.0,
         help="Optional - rough cost estimate for this repair",

@@ -1,5 +1,6 @@
 """Equipment and warranty CRUD."""
 
+import streamlit as st
 from database.supabase_client import get_client
 
 
@@ -34,6 +35,83 @@ def get_equipment_by_id(equip_id: str) -> dict | None:
         return result.data
     except Exception:
         return None
+
+
+@st.cache_data(ttl=300)
+def get_equipment_for_client(client_id: str) -> list[dict]:
+    """Get all equipment across all stores for a client, with store info."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("equipment")
+            .select("*, stores(id, store_number, name, brand)")
+            .eq("stores.client_id", client_id)
+            .eq("is_active", True)
+            .order("name")
+            .execute()
+        )
+        # Filter out rows where the store join didn't match (client_id filter)
+        return [r for r in (result.data or []) if r.get("stores")]
+    except Exception:
+        return []
+
+
+def get_equipment_with_details(store_id: str) -> list[dict]:
+    """Get equipment for a store with warranty status and open ticket counts.
+
+    Returns equipment rows enriched with 'active_warranty' and 'open_ticket_count'.
+    """
+    try:
+        sb = get_client()
+        # Get equipment
+        eq_result = (
+            sb.table("equipment")
+            .select("*")
+            .eq("store_id", store_id)
+            .eq("is_active", True)
+            .order("category, name")
+            .execute()
+        )
+        equipment = eq_result.data or []
+
+        for item in equipment:
+            eid = item["id"]
+            # Check active warranty
+            warranty = check_active_warranty(eid)
+            item["active_warranty"] = warranty
+
+            # Count open tickets
+            try:
+                ticket_result = (
+                    sb.table("tickets")
+                    .select("id", count="exact")
+                    .eq("equipment_id", eid)
+                    .not_.in_("status", ["completed", "closed", "rejected"])
+                    .execute()
+                )
+                item["open_ticket_count"] = ticket_result.count or 0
+            except Exception:
+                item["open_ticket_count"] = 0
+
+        return equipment
+    except Exception:
+        return []
+
+
+def get_repair_history(equipment_id: str) -> list[dict]:
+    """Get all tickets (repair history) for a specific piece of equipment."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("tickets")
+            .select("*, stores(store_number, name)")
+            .eq("equipment_id", equipment_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []
 
 
 def create_equipment(data: dict) -> dict | None:

@@ -65,6 +65,7 @@ if tier == "psp":
 
     nav_items["Submit Repair Request"] = "submit_request"
     nav_items["Ticket Dashboard"] = "ticket_dashboard"
+    nav_items["Equipment Inventory"] = "equipment_inventory"
 
     if can_approve():
         nav_items["Approval Queue"] = "approval_queue"
@@ -90,6 +91,7 @@ else:
 
     if can_manage_tickets():
         nav_items["Ticket Dashboard"] = "ticket_dashboard"
+        nav_items["Equipment Inventory"] = "equipment_inventory"
 
     role = user.get("client_role", "") if user else ""
 
@@ -136,6 +138,10 @@ if selected:
     elif page_key == "ticket_dashboard":
         from pages import ticket_dashboard
         ticket_dashboard.render()
+
+    elif page_key == "equipment_inventory":
+        from pages import equipment_inventory
+        equipment_inventory.render()
 
     elif page_key == "approval_queue":
         from pages import approval_queue

@@ -16,6 +16,7 @@ from database.audit import log_action
 from components.ticket_card import render_ticket_card, render_ticket_detail
 from theme.branding import render_header
 from utils.constants import TICKET_STATUSES, STATUS_LABELS, URGENCY_LEVELS
+from database.cost_estimation import get_cost_estimate_details
 from utils.permissions import require_permission, can_manage_tickets
 from utils.helpers import format_currency
 
@@ -173,16 +174,50 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             st.info("No team members found for this client.")
 
     with tab_cost:
+        # Historical cost estimate from past repairs
+        ticket_category = ticket.get("category", "")
+        equip_name = None
+        if ticket.get("equipment") and isinstance(ticket["equipment"], dict):
+            equip_name = ticket["equipment"].get("name")
+        cost_details = get_cost_estimate_details(client_id, ticket_category, equip_name) if ticket_category else None
+
+        if cost_details:
+            est = cost_details["estimate"]
+            confidence = "low confidence" if est["low_confidence"] else f"{est['count']} repairs"
+            st.info(
+                f"Historical estimate ({confidence}): "
+                f"${est['min']:,.0f} - ${est['max']:,.0f} (avg: ${est['avg']:,.0f})"
+            )
+
+        # Show comparison if actual cost is filled in
+        actual = ticket.get("actual_cost") or 0
         current_est = ticket.get("estimated_cost") or 0
+        if actual > 0 and cost_details:
+            est = cost_details["estimate"]
+            st.markdown(
+                f"**Estimated range:** ${est['min']:,.0f} - ${est['max']:,.0f} | "
+                f"**User estimate:** {format_currency(current_est)} | "
+                f"**Actual:** {format_currency(actual)}"
+            )
+        elif actual > 0 and current_est > 0:
+            st.markdown(
+                f"**User estimate:** {format_currency(current_est)} | "
+                f"**Actual:** {format_currency(actual)}"
+            )
+
         new_estimate = st.number_input(
             "Estimated Cost ($)", min_value=0.0, value=float(current_est), step=50.0,
         )
+        if cost_details:
+            st.caption(
+                f"Suggested range: ${cost_details['estimate']['min']:,.0f} - "
+                f"${cost_details['estimate']['max']:,.0f}"
+            )
         if st.button("Update Estimate", use_container_width=True):
             update_ticket(ticket_id, {"estimated_cost": new_estimate})
             st.success(f"Estimate updated to {format_currency(new_estimate)}")
             st.rerun()
 
-        actual = ticket.get("actual_cost") or 0
         new_actual = st.number_input(
             "Actual Cost ($)", min_value=0.0, value=float(actual), step=50.0,
         )
