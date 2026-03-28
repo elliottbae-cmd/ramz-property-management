@@ -278,8 +278,8 @@ def _render_ai_lookup(equipment: list[dict], user: dict):
         "using AI. Results can be saved to your database."
     )
 
-    import os
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    from config.settings import _get_secret
+    api_key = _get_secret("ANTHROPIC_API_KEY")
     if not api_key:
         st.warning(
             "AI warranty lookup is not configured. "
@@ -288,7 +288,7 @@ def _render_ai_lookup(equipment: list[dict], user: dict):
         return
 
     # Show Tavily status
-    tavily_key = os.getenv("TAVILY_API_KEY")
+    tavily_key = _get_secret("TAVILY_API_KEY")
     if tavily_key and tavily_key != "your_tavily_api_key_here":
         st.caption("Web search enabled (Tavily) -- results will include real manufacturer sources.")
     else:

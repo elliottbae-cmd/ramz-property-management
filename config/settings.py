@@ -1,15 +1,28 @@
-"""Application settings — loads from environment variables or .env file."""
+"""Application settings — loads from environment variables, .env file, or Streamlit secrets."""
 
 import os
-from dotenv import load_dotenv
+import streamlit as st
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not available (e.g., Streamlit Cloud)
+
+
+def _get_secret(key: str, default: str = "") -> str:
+    """Get a secret from st.secrets, then env vars, then default."""
+    try:
+        return st.secrets[key]
+    except (KeyError, FileNotFoundError):
+        return os.getenv(key, default)
+
 
 # ------------------------------------------------------------------
 # Supabase
 # ------------------------------------------------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_URL = _get_secret("SUPABASE_URL")
+SUPABASE_KEY = _get_secret("SUPABASE_KEY")
 
 # ------------------------------------------------------------------
 # App metadata

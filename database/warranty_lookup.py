@@ -8,6 +8,7 @@ Three-step process:
 """
 
 import hashlib
+from config.settings import _get_secret
 import json
 import os
 import re
@@ -88,7 +89,7 @@ def check_warranty_status(equipment_data: dict) -> dict:
             return result
 
     # Step 2 -- AI lookup (only if API key is available)
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = _get_secret("ANTHROPIC_API_KEY")
     if not api_key:
         result["recommendation"] = (
             "No warranty on file. AI lookup not configured "
@@ -142,7 +143,7 @@ def _tavily_search(queries: list[str]) -> list[dict]:
     Each result dict has: title, url, content (snippet).
     Returns an empty list if Tavily is not available.
     """
-    tavily_key = os.getenv("TAVILY_API_KEY")
+    tavily_key = _get_secret("TAVILY_API_KEY")
     if not tavily_key:
         return []
 
@@ -238,14 +239,14 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
 
     import anthropic  # deferred so import cost only hits when needed
 
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    client = anthropic.Anthropic(api_key=_get_secret("ANTHROPIC_API_KEY"))
 
     # --- Tavily search ---
     search_queries = _build_search_queries(equipment_data)
     search_results = _tavily_search(search_queries)
 
     tavily_available = bool(search_results)
-    tavily_key_set = bool(os.getenv("TAVILY_API_KEY"))
+    tavily_key_set = bool(_get_secret("TAVILY_API_KEY"))
 
     # --- Build Claude prompt ---
     manufacturer = equipment_data.get("manufacturer", "Unknown")
