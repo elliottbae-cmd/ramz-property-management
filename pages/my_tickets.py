@@ -52,6 +52,13 @@ def render():
 
             st.caption(f"{len(submitted)} ticket(s)")
             for ticket in submitted:
+                if ticket.get("status") == "warranty_check":
+                    st.markdown(
+                        '<span style="background-color:#C4A04D; color:white; padding:2px 8px; '
+                        'border-radius:12px; font-size:0.75rem; font-weight:600;">'
+                        'UNDER WARRANTY REVIEW</span>',
+                        unsafe_allow_html=True,
+                    )
                 render_ticket_card(ticket, on_click_key=f"view_submitted_{ticket['id']}")
 
     with tab_assigned:
@@ -83,6 +90,34 @@ def _render_ticket_detail_view(ticket_id: str, user: dict):
     approvals = _get_ticket_approvals(ticket_id)
 
     render_ticket_detail(ticket, photos, comments, approvals)
+
+    # ---- Warranty status messages ----
+    if ticket.get("status") == "warranty_check":
+        st.markdown(
+            '<div style="background-color:#C4A04D; color:white; padding:12px 16px; '
+            'border-radius:8px; margin:8px 0;">'
+            '<strong>Warranty Review in Progress</strong><br>'
+            'Your ticket is being reviewed for warranty coverage by the property management team.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    elif ticket.get("warranty_checked"):
+        # Show warranty details from public comments
+        warranty_comments = [
+            c for c in comments
+            if "warranty" in (c.get("comment") or "").lower()
+            and "under warranty" in (c.get("comment") or "").lower()
+            and not c.get("is_internal")
+        ]
+        if warranty_comments:
+            st.markdown(
+                '<div style="background-color:#1B5E20; color:white; padding:12px 16px; '
+                'border-radius:8px; margin:8px 0;">'
+                '<strong>Warranty Coverage Found</strong></div>',
+                unsafe_allow_html=True,
+            )
+            for wc in warranty_comments:
+                st.info(wc.get("comment", ""))
 
     # Add comment
     st.markdown("---")

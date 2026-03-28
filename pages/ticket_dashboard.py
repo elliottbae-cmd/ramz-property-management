@@ -15,7 +15,7 @@ from database.work_orders import create_work_order
 from database.audit import log_action
 from components.ticket_card import render_ticket_card, render_ticket_detail
 from theme.branding import render_header
-from utils.constants import TICKET_STATUSES, STATUS_LABELS, URGENCY_LEVELS
+from utils.constants import TICKET_STATUSES, STATUS_LABELS, STATUS_COLORS, URGENCY_LEVELS
 from database.cost_estimation import get_cost_estimate_details
 from utils.permissions import require_permission, can_manage_tickets
 from utils.helpers import format_currency
@@ -116,6 +116,21 @@ def render():
     for ticket in tickets:
         col_card, col_action = st.columns([4, 1])
         with col_card:
+            # Visual indicator for warranty_check status
+            if ticket.get("status") == "warranty_check":
+                st.markdown(
+                    '<span style="background-color:#C4A04D; color:white; padding:2px 8px; '
+                    'border-radius:12px; font-size:0.75rem; font-weight:600;">'
+                    'AWAITING WARRANTY REVIEW</span>',
+                    unsafe_allow_html=True,
+                )
+            elif ticket.get("warranty_checked"):
+                st.markdown(
+                    '<span style="background-color:#1B5E20; color:white; padding:2px 8px; '
+                    'border-radius:12px; font-size:0.75rem; font-weight:600;">'
+                    'WARRANTY REVIEWED</span>',
+                    unsafe_allow_html=True,
+                )
             render_ticket_card(ticket)
         with col_action:
             if st.button("Manage", key=f"manage_{ticket['id']}", use_container_width=True):
@@ -140,6 +155,33 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
     approvals = _get_ticket_approvals(ticket_id)
 
     render_ticket_detail(ticket, photos, comments, approvals)
+
+    # ---- Warranty info display ----
+    if ticket.get("warranty_checked"):
+        # Show warranty details from comments
+        warranty_comments = [
+            c for c in comments
+            if "warranty" in (c.get("comment") or "").lower()
+            and "under warranty" in (c.get("comment") or "").lower()
+            and not c.get("is_internal")
+        ]
+        if warranty_comments:
+            st.markdown(
+                '<div style="background-color:#1B5E20; color:white; padding:12px 16px; '
+                'border-radius:8px; margin:8px 0;">'
+                '<strong>Warranty Information</strong></div>',
+                unsafe_allow_html=True,
+            )
+            for wc in warranty_comments:
+                st.info(wc.get("comment", ""))
+    elif ticket.get("status") == "warranty_check":
+        st.markdown(
+            '<div style="background-color:#C4A04D; color:white; padding:12px 16px; '
+            'border-radius:8px; margin:8px 0;">'
+            '<strong>Awaiting Warranty Review</strong><br>'
+            'This ticket is pending warranty review by the PSP team.</div>',
+            unsafe_allow_html=True,
+        )
 
     # ---- Management Actions ----
     st.markdown("---")

@@ -65,7 +65,7 @@ TICKET_STATUSES = [
 STATUS_LABELS = {
     "submitted": "Submitted",
     "troubleshooting": "Troubleshooting",
-    "warranty_check": "Warranty Check",
+    "warranty_check": "Warranty Review",
     "pending_approval": "Pending Approval",
     "approved": "Approved",
     "assigned": "Assigned",
@@ -78,7 +78,7 @@ STATUS_LABELS = {
 STATUS_COLORS = {
     "submitted": "#1B3A4B",         # Navy (info)
     "troubleshooting": "#795548",   # Brown
-    "warranty_check": "#607D8B",    # Blue-gray
+    "warranty_check": "#C4A04D",    # Gold (warranty review)
     "pending_approval": "#FF9800",  # Orange (warning)
     "approved": "#4CAF50",          # Green (success)
     "assigned": "#9C27B0",          # Purple

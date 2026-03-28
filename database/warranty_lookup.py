@@ -32,6 +32,7 @@ def _cache_key(equipment_data: dict) -> str:
         equipment_data.get("model", ""),
         equipment_data.get("serial_number", ""),
         equipment_data.get("equipment_name", ""),
+        equipment_data.get("install_date", ""),
     )
     return hashlib.sha256("|".join(parts).lower().encode()).hexdigest()
 
@@ -40,7 +41,7 @@ def _cache_key(equipment_data: dict) -> str:
 # Public API
 # ------------------------------------------------------------------
 
-def check_warranty_status(equipment_data: dict) -> dict:
+def check_warranty_status(equipment_data: dict, install_date=None) -> dict:
     """Check warranty status for equipment.
 
     Parameters
@@ -96,6 +97,13 @@ def check_warranty_status(equipment_data: dict) -> dict:
             "(ANTHROPIC_API_KEY not set)."
         )
         return result
+
+    # Inject install_date into equipment_data if provided externally
+    if install_date is not None:
+        if hasattr(install_date, "isoformat"):
+            equipment_data["install_date"] = install_date.isoformat()
+        else:
+            equipment_data["install_date"] = str(install_date)
 
     try:
         ai_result = _ai_warranty_research(equipment_data)
@@ -186,16 +194,25 @@ def _build_search_queries(equipment_data: dict) -> list[str]:
     model = equipment_data.get("model", "").strip()
     equipment_name = equipment_data.get("equipment_name", "").strip()
     equipment_type = equipment_data.get("category", "").strip()
+    install_date = equipment_data.get("install_date", "").strip()
 
     # Use the best identifier available
     equip_label = manufacturer or equipment_name or "commercial equipment"
     model_label = model or equipment_name or ""
 
+    # Extract year from install_date for more targeted searches
+    install_year = ""
+    if install_date and install_date != "Unknown":
+        install_year = install_date[:4]  # YYYY from YYYY-MM-DD
+
     queries = []
 
     # Query 1: specific warranty terms
     if manufacturer and model:
-        queries.append(f"{manufacturer} {model} warranty terms")
+        q = f"{manufacturer} {model} warranty terms"
+        if install_year:
+            q += f" {install_year}"
+        queries.append(q)
     elif manufacturer:
         queries.append(f"{manufacturer} {equipment_name} warranty terms")
     else:
@@ -278,7 +295,9 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
             "Based on these search results, please extract:\n"
             "1. The specific warranty period for this equipment/manufacturer\n"
             "2. What the warranty covers (parts, labor, compressor, etc.)\n"
-            "3. Whether the equipment is likely still under warranty based on the install date\n"
+            "3. Whether the equipment is likely still under warranty based on the install date. "
+            "If an install date is provided, calculate whether the equipment is still covered "
+            "by adding the typical warranty period to the install date and comparing to today's date.\n"
             "4. Manufacturer contact information for warranty claims (phone, website)\n"
             "5. The general warranty claim process\n"
             "6. Which source URLs contain the most relevant warranty info\n"
@@ -323,7 +342,9 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
             "Please provide:\n"
             "1. Typical warranty period for this type of equipment from this manufacturer\n"
             "2. What the warranty typically covers\n"
-            "3. Whether the equipment is likely still under warranty based on install date\n"
+            "3. Whether the equipment is likely still under warranty based on install date. "
+            "If an install date is provided, calculate whether the equipment is still covered "
+            "by adding the typical warranty period to the install date and comparing to today's date.\n"
             "4. Manufacturer's warranty claim contact information (phone, website)\n"
             "5. General claim process steps\n"
             "6. Any notes about common warranty exclusions\n\n"

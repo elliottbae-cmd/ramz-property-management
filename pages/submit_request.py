@@ -320,7 +320,7 @@ def render():
                 "description": description.strip(),
                 "urgency": selected_urgency,
                 "submitted_by": user["id"],
-                "status": "submitted",
+                "status": "warranty_check",
             }
             if estimated_cost > 0:
                 ticket_data["estimated_cost"] = estimated_cost
