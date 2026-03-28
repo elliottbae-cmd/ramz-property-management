@@ -410,6 +410,10 @@ def _render_warranty_check(
         ai = result["ai_result"]
         confidence = ai.get("confidence", "low")
 
+        # Confidence badge
+        conf_colors = {"high": "#1B5E20", "medium": "#F57F17", "low": "#B71C1C"}
+        conf_color = conf_colors.get(confidence, "#616161")
+
         if ai.get("likely_under_warranty") and confidence in ("high", "medium"):
             # GREEN/YELLOW -- AI thinks under warranty
             bg = "#1B5E20" if confidence == "high" else "#F57F17"
@@ -417,7 +421,11 @@ def _render_warranty_check(
             st.markdown(
                 f'<div style="background-color: {bg}; color: white; padding: 12px 16px; '
                 f'border-radius: 8px; margin: 8px 0;">'
-                f'<strong>{label}</strong><br>{recommendation}</div>',
+                f'<strong>{label}</strong> '
+                f'<span style="background-color: {conf_color}; color: white; '
+                f'padding: 2px 8px; border-radius: 12px; font-size: 0.8em; '
+                f'margin-left: 8px;">{confidence.upper()} confidence</span>'
+                f'<br>{recommendation}</div>',
                 unsafe_allow_html=True,
             )
             if confidence == "high":
@@ -432,19 +440,38 @@ def _render_warranty_check(
             st.markdown(
                 f'<div style="background-color: #B71C1C; color: white; padding: 12px 16px; '
                 f'border-radius: 8px; margin: 8px 0;">'
-                f'<strong>Warranty Likely Expired</strong><br>{recommendation}</div>',
+                f'<strong>Warranty Likely Expired</strong> '
+                f'<span style="background-color: {conf_color}; color: white; '
+                f'padding: 2px 8px; border-radius: 12px; font-size: 0.8em; '
+                f'margin-left: 8px;">{confidence.upper()} confidence</span>'
+                f'<br>{recommendation}</div>',
                 unsafe_allow_html=True,
             )
 
         # Show AI details in expander
         with st.expander("View AI Research Details"):
-            st.write(f"**Typical Warranty Period:** {ai.get('typical_warranty_period', 'N/A')}")
+            warranty_period = ai.get("warranty_period") or ai.get("typical_warranty_period", "N/A")
+            st.write(f"**Warranty Period:** {warranty_period}")
+            st.write(f"**Coverage Type:** {ai.get('coverage_type', 'N/A')}")
             st.write(f"**Estimated Expiry:** {ai.get('estimated_expiry', 'N/A')}")
             st.write(f"**Manufacturer Contact:** {ai.get('manufacturer_contact', 'N/A')}")
             st.write(f"**Claim Process:** {ai.get('claim_process', 'N/A')}")
             if ai.get("notes"):
                 st.write(f"**Notes:** {ai['notes']}")
-            st.caption(f"Confidence: {confidence}")
+
+            # Web search indicator
+            if ai.get("web_search_used"):
+                st.caption("Results based on live web search + AI analysis")
+            else:
+                st.caption("Results based on AI training data only")
+
+            # Source URLs
+            source_urls = ai.get("source_urls", [])
+            if source_urls:
+                st.markdown("**Sources:**")
+                for url in source_urls:
+                    display_url = url if len(url) <= 80 else url[:77] + "..."
+                    st.markdown(f"- [{display_url}]({url})")
     else:
         # No warranty info at all
         st.markdown(

@@ -1,5 +1,6 @@
 """Ticket CRUD — all client-scoped queries filter by client_id."""
 
+import streamlit as st
 from database.supabase_client import get_client
 
 
@@ -49,7 +50,7 @@ def get_tickets_for_user(user_id: str) -> list[dict]:
         return []
 
 
-def get_tickets_for_client(client_id: str, filters: dict | None = None) -> list[dict]:
+def get_tickets_for_client(client_id: str, filters: dict | None = None, limit: int = 100) -> list[dict]:
     """Return all tickets for a client with optional filtering.
 
     Supported filter keys: store_id, status, urgency, category,
@@ -62,6 +63,7 @@ def get_tickets_for_client(client_id: str, filters: dict | None = None) -> list[
             .select("*, stores(store_number, name)")
             .eq("client_id", client_id)
             .order("created_at", desc=True)
+            .limit(limit)
         )
         if filters:
             for key in ("store_id", "status", "urgency", "category",

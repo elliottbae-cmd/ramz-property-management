@@ -287,6 +287,13 @@ def _render_ai_lookup(equipment: list[dict], user: dict):
         )
         return
 
+    # Show Tavily status
+    tavily_key = os.getenv("TAVILY_API_KEY")
+    if tavily_key and tavily_key != "your_tavily_api_key_here":
+        st.caption("Web search enabled (Tavily) -- results will include real manufacturer sources.")
+    else:
+        st.caption("Web search not configured. AI will use training data only. Add TAVILY_API_KEY for better results.")
+
     # Option: pick from existing equipment or enter manually
     lookup_mode = st.radio(
         "Lookup source:",
@@ -397,24 +404,48 @@ def _render_ai_lookup(equipment: list[dict], user: dict):
             bg = "#B71C1C"
             label = "Warranty Likely Expired"
 
+        # Confidence badge
+        conf_colors = {"high": "#1B5E20", "medium": "#F57F17", "low": "#B71C1C"}
+        conf_color = conf_colors.get(confidence, "#616161")
+
         st.markdown(
             f'<div style="background-color: {bg}; color: white; padding: 12px 16px; '
             f'border-radius: 8px; margin: 8px 0;">'
-            f'<strong>{label}</strong><br>{recommendation}</div>',
+            f'<strong>{label}</strong> '
+            f'<span style="background-color: {conf_color}; color: white; '
+            f'padding: 2px 8px; border-radius: 12px; font-size: 0.8em; '
+            f'margin-left: 8px;">{confidence.upper()} confidence</span>'
+            f'<br>{recommendation}</div>',
             unsafe_allow_html=True,
         )
 
         # Detail table
         col1, col2 = st.columns(2)
         with col1:
-            st.write(f"**Typical Warranty Period:** {ai.get('typical_warranty_period', 'N/A')}")
+            warranty_period = ai.get("warranty_period") or ai.get("typical_warranty_period", "N/A")
+            st.write(f"**Warranty Period:** {warranty_period}")
+            st.write(f"**Coverage Type:** {ai.get('coverage_type', 'N/A')}")
             st.write(f"**Estimated Expiry:** {ai.get('estimated_expiry', 'N/A')}")
-            st.write(f"**Confidence:** {confidence.title()}")
         with col2:
             st.write(f"**Manufacturer Contact:** {ai.get('manufacturer_contact', 'N/A')}")
             st.write(f"**Claim Process:** {ai.get('claim_process', 'N/A')}")
         if ai.get("notes"):
             st.write(f"**Notes:** {ai['notes']}")
+
+        # Web search indicator
+        if ai.get("web_search_used"):
+            st.caption("Results based on live web search + AI analysis")
+        else:
+            st.caption("Results based on AI training data only (no web search)")
+
+        # Sources section
+        source_urls = ai.get("source_urls", [])
+        if source_urls:
+            st.markdown("#### Sources")
+            for url in source_urls:
+                # Display as clickable link
+                display_url = url if len(url) <= 80 else url[:77] + "..."
+                st.markdown(f"- [{display_url}]({url})")
 
         # Save to database option
         equip_id = st.session_state.get("ai_lookup_equip_id")

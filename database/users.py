@@ -28,8 +28,9 @@ def get_current_user_profile() -> dict | None:
         return None
 
 
-def get_users_for_client(client_id: str, active_only: bool = True) -> list[dict]:
-    """Return all users belonging to a specific client org."""
+@st.cache_data(ttl=300)
+def _fetch_users_for_client(client_id: str, active_only: bool = True) -> list[dict]:
+    """Cached fetch of users for a client."""
     try:
         sb = get_client()
         query = (
@@ -43,6 +44,11 @@ def get_users_for_client(client_id: str, active_only: bool = True) -> list[dict]
         return query.execute().data or []
     except Exception:
         return []
+
+
+def get_users_for_client(client_id: str, active_only: bool = True) -> list[dict]:
+    """Return all users belonging to a specific client org."""
+    return _fetch_users_for_client(client_id, active_only)
 
 
 def create_user_profile(data: dict) -> dict | None:
