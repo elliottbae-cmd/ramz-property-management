@@ -9,6 +9,7 @@ from database.supabase_client import get_current_user, get_client, upload_photo
 from database.tenant import get_effective_client_id
 from database.stores import get_stores
 from database.equipment import get_equipment, create_equipment
+from database.warranty_lookup import check_warranty_status, save_warranty_from_ai
 from database.tickets import create_ticket
 from database.approvals import initiate_approval_chain, get_threshold
 from database.audit import log_action
@@ -202,6 +203,16 @@ def render():
                 "Serial Number", placeholder="e.g., ABC-12345", key="serial_input"
             )
 
+    # ---- Warranty Check ----
+    if selected_equipment_type and selected_equipment_type != "":
+        _render_warranty_check(
+            equipment_name=new_equipment_name,
+            manufacturer=new_manufacturer,
+            model=new_brand,  # model field is labeled "Model" but stored in new_brand var
+            serial_number=new_serial,
+            category=category_name,
+        )
+
     # ---- Cost Estimation Hint ----
     cost_details = None
     if category_name and client_id:
@@ -348,3 +359,97 @@ def render():
 
         except Exception as e:
             st.error(f"Error submitting request: {str(e)}")
+
+
+# ------------------------------------------------------------------
+# Warranty check widget
+# ------------------------------------------------------------------
+
+def _render_warranty_check(
+    equipment_name: str | None,
+    manufacturer: str | None,
+    model: str | None,
+    serial_number: str | None,
+    category: str | None,
+):
+    """Render a 'Check Warranty' button and display results."""
+    if st.button("Check Warranty", key="warranty_check_btn"):
+        equipment_data = {
+            "equipment_name": equipment_name or "",
+            "manufacturer": manufacturer or "",
+            "model": model or "",
+            "serial_number": serial_number or "",
+            "category": category or "",
+        }
+
+        with st.spinner("Checking warranty status..."):
+            result = check_warranty_status(equipment_data)
+
+        st.session_state["warranty_check_result"] = result
+
+    # Display result if available
+    result = st.session_state.get("warranty_check_result")
+    if not result:
+        return
+
+    recommendation = result.get("recommendation", "")
+
+    if result.get("has_db_warranty"):
+        # GREEN -- active warranty on file
+        st.markdown(
+            f'<div style="background-color: #1B5E20; color: white; padding: 12px 16px; '
+            f'border-radius: 8px; margin: 8px 0;">'
+            f'<strong>Under Warranty</strong><br>{recommendation}</div>',
+            unsafe_allow_html=True,
+        )
+        st.info(
+            "This may be covered under warranty. Consider contacting the "
+            "manufacturer before requesting repairs."
+        )
+    elif result.get("ai_lookup_performed") and result.get("ai_result"):
+        ai = result["ai_result"]
+        confidence = ai.get("confidence", "low")
+
+        if ai.get("likely_under_warranty") and confidence in ("high", "medium"):
+            # GREEN/YELLOW -- AI thinks under warranty
+            bg = "#1B5E20" if confidence == "high" else "#F57F17"
+            label = "Likely Under Warranty" if confidence == "high" else "Warranty Status Uncertain"
+            st.markdown(
+                f'<div style="background-color: {bg}; color: white; padding: 12px 16px; '
+                f'border-radius: 8px; margin: 8px 0;">'
+                f'<strong>{label}</strong><br>{recommendation}</div>',
+                unsafe_allow_html=True,
+            )
+            if confidence == "high":
+                st.info(
+                    "This may be covered under warranty. Consider contacting the "
+                    "manufacturer before requesting repairs."
+                )
+            else:
+                st.warning("PSP should verify warranty status with the manufacturer.")
+        else:
+            # RED -- warranty likely expired or low confidence
+            st.markdown(
+                f'<div style="background-color: #B71C1C; color: white; padding: 12px 16px; '
+                f'border-radius: 8px; margin: 8px 0;">'
+                f'<strong>Warranty Likely Expired</strong><br>{recommendation}</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Show AI details in expander
+        with st.expander("View AI Research Details"):
+            st.write(f"**Typical Warranty Period:** {ai.get('typical_warranty_period', 'N/A')}")
+            st.write(f"**Estimated Expiry:** {ai.get('estimated_expiry', 'N/A')}")
+            st.write(f"**Manufacturer Contact:** {ai.get('manufacturer_contact', 'N/A')}")
+            st.write(f"**Claim Process:** {ai.get('claim_process', 'N/A')}")
+            if ai.get("notes"):
+                st.write(f"**Notes:** {ai['notes']}")
+            st.caption(f"Confidence: {confidence}")
+    else:
+        # No warranty info at all
+        st.markdown(
+            f'<div style="background-color: #616161; color: white; padding: 12px 16px; '
+            f'border-radius: 8px; margin: 8px 0;">'
+            f'<strong>No Warranty Info</strong><br>{recommendation}</div>',
+            unsafe_allow_html=True,
+        )
