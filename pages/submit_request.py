@@ -7,7 +7,7 @@ Uses new multi-tenant module imports.
 import streamlit as st
 from database.supabase_client import get_current_user, get_client, upload_photo
 from database.tenant import get_effective_client_id
-from database.stores import get_stores
+from database.stores import get_stores, get_stores_for_user
 from database.equipment import get_equipment, create_equipment
 from database.warranty_lookup import check_warranty_status, save_warranty_from_ai
 from database.tickets import create_ticket
@@ -100,27 +100,32 @@ def render():
         return
 
     # ---- Store Selection ----
-    stores = get_stores(client_id)
+    stores = get_stores_for_user(user, client_id)
     if not stores:
-        st.warning("No stores found for this client.")
+        st.warning("No stores found for your account. Contact your administrator.")
         return
 
     store_options = {s["id"]: f"{s['store_number']} - {s['name']}" for s in stores}
     store_ids = list(store_options.keys())
 
-    # Try to pre-select user's assigned store
-    user_store_id = user.get("store_id")
-    default_idx = 0
-    if user_store_id and user_store_id in store_ids:
-        default_idx = store_ids.index(user_store_id)
+    # Auto-select for GMs with only one store
+    if len(stores) == 1:
+        selected_store_id = store_ids[0]
+        st.info(f"📍 **Store: {store_options[selected_store_id]}**")
+    else:
+        # Try to pre-select user's assigned store
+        user_store_id = user.get("store_id")
+        default_idx = 0
+        if user_store_id and user_store_id in store_ids:
+            default_idx = store_ids.index(user_store_id)
 
-    selected_store_id = st.selectbox(
-        "Store Location *",
-        options=store_ids,
-        format_func=lambda x: store_options[x],
-        index=default_idx,
-        help="Select the store where the repair is needed",
-    )
+        selected_store_id = st.selectbox(
+            "Store Location *",
+            options=store_ids,
+            format_func=lambda x: store_options[x],
+            index=default_idx,
+            help="Select the store where the repair is needed",
+        )
 
     # ---- Category ----
     category_options = {c["id"]: f"{c.get('icon', '')} {c['name']}" for c in categories}

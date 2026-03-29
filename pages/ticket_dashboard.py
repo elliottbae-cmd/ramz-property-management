@@ -7,7 +7,7 @@ Uses new multi-tenant module imports.
 import streamlit as st
 from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
-from database.stores import get_stores
+from database.stores import get_stores, get_stores_for_user
 from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, add_comment, update_ticket
 from database.users import get_users_for_client
 from database.contractors import get_contractors
@@ -45,7 +45,7 @@ def render():
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        stores = get_stores(client_id)
+        stores = get_stores_for_user(user, client_id)
         store_options = {"all": "All Stores"} | {
             s["id"]: f"{s['store_number']} - {s['name']}" for s in stores
         }
