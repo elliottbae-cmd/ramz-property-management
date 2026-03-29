@@ -1,8 +1,10 @@
 """Knowledge base (KB) CRUD — tips, troubleshooting guides, and feedback."""
 
+import streamlit as st
 from database.supabase_client import get_client
 
 
+@st.cache_data(ttl=300)
 def get_tips(equipment_type: str | None = None,
              issue_category: str | None = None) -> list[dict]:
     """Find relevant KB tips, optionally filtered by equipment type or category."""

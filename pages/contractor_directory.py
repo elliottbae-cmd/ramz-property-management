@@ -4,7 +4,7 @@ Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import get_current_user, is_psp_user
+from database.supabase_client import get_current_user
 from database.contractors import (
     get_contractors, get_contractor, create_contractor,
     update_contractor, get_contractor_reviews, add_review,

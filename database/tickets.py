@@ -34,6 +34,7 @@ def get_ticket(ticket_id: str) -> dict | None:
         return None
 
 
+@st.cache_data(ttl=30)
 def get_tickets_for_user(user_id: str) -> list[dict]:
     """Return tickets submitted by or assigned to a specific user."""
     try:
@@ -55,7 +56,28 @@ def get_tickets_for_client(client_id: str, filters: dict | None = None, limit: i
 
     Supported filter keys: store_id, status, urgency, category,
     submitted_by, assigned_to.
+    Delegates to a cached helper with hashable arguments.
     """
+    if filters:
+        return _fetch_tickets_for_client(
+            client_id, limit,
+            store_id=filters.get("store_id", ""),
+            status=filters.get("status", ""),
+            urgency=filters.get("urgency", ""),
+            category=filters.get("category", ""),
+            submitted_by=filters.get("submitted_by", ""),
+            assigned_to=filters.get("assigned_to", ""),
+        )
+    return _fetch_tickets_for_client(client_id, limit)
+
+
+@st.cache_data(ttl=30)
+def _fetch_tickets_for_client(
+    client_id: str, limit: int = 100,
+    store_id: str = "", status: str = "", urgency: str = "",
+    category: str = "", submitted_by: str = "", assigned_to: str = "",
+) -> list[dict]:
+    """Cached ticket fetch with hashable parameters."""
     try:
         sb = get_client()
         query = (
@@ -65,11 +87,18 @@ def get_tickets_for_client(client_id: str, filters: dict | None = None, limit: i
             .order("created_at", desc=True)
             .limit(limit)
         )
-        if filters:
-            for key in ("store_id", "status", "urgency", "category",
-                        "submitted_by", "assigned_to"):
-                if filters.get(key):
-                    query = query.eq(key, filters[key])
+        if store_id:
+            query = query.eq("store_id", store_id)
+        if status:
+            query = query.eq("status", status)
+        if urgency:
+            query = query.eq("urgency", urgency)
+        if category:
+            query = query.eq("category", category)
+        if submitted_by:
+            query = query.eq("submitted_by", submitted_by)
+        if assigned_to:
+            query = query.eq("assigned_to", assigned_to)
         return query.execute().data or []
     except Exception:
         return []
@@ -103,6 +132,38 @@ def get_ticket_comments(ticket_id: str) -> list[dict]:
             .select("*, users(full_name)")
             .eq("ticket_id", ticket_id)
             .order("created_at")
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []
+
+
+def get_ticket_photos(ticket_id: str) -> list[dict]:
+    """Fetch photos for a ticket."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("ticket_photos")
+            .select("*")
+            .eq("ticket_id", ticket_id)
+            .order("uploaded_at")
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []
+
+
+def get_ticket_approvals(ticket_id: str) -> list[dict]:
+    """Fetch approval records for a ticket with approver names."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("approvals")
+            .select("*, users:approver_id(full_name)")
+            .eq("ticket_id", ticket_id)
+            .order("step_order")
             .execute()
         )
         return result.data or []

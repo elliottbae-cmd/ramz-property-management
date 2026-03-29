@@ -1,10 +1,12 @@
 """Approval chain and threshold logic — client-scoped."""
 
+import streamlit as st
 from datetime import datetime, timezone
 from database.supabase_client import get_client
 from config.settings import DEFAULT_APPROVAL_THRESHOLD
 
 
+@st.cache_data(ttl=300)
 def get_approval_config(client_id: str) -> list[dict]:
     """Get the approval chain configuration for a client.
 
@@ -25,6 +27,7 @@ def get_approval_config(client_id: str) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=300)
 def get_threshold(client_id: str) -> float:
     """Return the dollar threshold above which tickets need approval.
 

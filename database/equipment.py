@@ -4,6 +4,7 @@ import streamlit as st
 from database.supabase_client import get_client
 
 
+@st.cache_data(ttl=300)
 def get_equipment(store_id: str, active_only: bool = True) -> list[dict]:
     """List equipment for a store, ordered by name."""
     try:
@@ -21,6 +22,7 @@ def get_equipment(store_id: str, active_only: bool = True) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=300)
 def get_equipment_by_id(equip_id: str) -> dict | None:
     """Fetch a single equipment record."""
     try:
@@ -74,30 +76,40 @@ def get_equipment_with_details(store_id: str) -> list[dict]:
         )
         equipment = eq_result.data or []
 
-        for item in equipment:
-            eid = item["id"]
-            # Check active warranty
-            warranty = check_active_warranty(eid)
-            item["active_warranty"] = warranty
+        if not equipment:
+            return []
 
-            # Count open tickets
-            try:
-                ticket_result = (
-                    sb.table("tickets")
-                    .select("id", count="exact")
-                    .eq("equipment_id", eid)
-                    .not_.in_("status", ["completed", "closed", "rejected"])
-                    .execute()
-                )
-                item["open_ticket_count"] = ticket_result.count or 0
-            except Exception:
-                item["open_ticket_count"] = 0
+        # Check warranties (cached per-item)
+        for item in equipment:
+            item["active_warranty"] = check_active_warranty(item["id"])
+
+        # Batch-fetch open ticket counts instead of N+1 queries
+        eq_ids = [item["id"] for item in equipment]
+        try:
+            ticket_result = (
+                sb.table("tickets")
+                .select("equipment_id")
+                .in_("equipment_id", eq_ids)
+                .not_.in_("status", ["completed", "closed", "rejected"])
+                .execute()
+            )
+            counts: dict[str, int] = {}
+            for row in (ticket_result.data or []):
+                eid = row.get("equipment_id")
+                if eid:
+                    counts[eid] = counts.get(eid, 0) + 1
+        except Exception:
+            counts = {}
+
+        for item in equipment:
+            item["open_ticket_count"] = counts.get(item["id"], 0)
 
         return equipment
     except Exception:
         return []
 
 
+@st.cache_data(ttl=60)
 def get_repair_history(equipment_id: str) -> list[dict]:
     """Get all tickets (repair history) for a specific piece of equipment."""
     try:
@@ -147,6 +159,7 @@ def update_equipment(equip_id: str, data: dict) -> dict | None:
 # Warranty helpers
 # ------------------------------------------------------------------
 
+@st.cache_data(ttl=60)
 def get_warranties(equipment_id: str) -> list[dict]:
     """Get all warranty records for a piece of equipment."""
     try:
@@ -163,6 +176,7 @@ def get_warranties(equipment_id: str) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=60)
 def check_active_warranty(equipment_id: str) -> dict | None:
     """Return the active warranty for an equipment item, or None.
 

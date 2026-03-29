@@ -1,17 +1,21 @@
 """Reporting queries — client-scoped analytics."""
 
+import streamlit as st
 from database.supabase_client import get_client
 
 
 def get_store_metrics(client_id: str, store_id: str | None = None,
                       date_range: tuple | None = None) -> list[dict]:
-    """Get ticket counts and spend for stores within a client.
+    """Get ticket counts and spend for stores within a client."""
+    start = date_range[0] if date_range else ""
+    end = date_range[1] if date_range else ""
+    return _fetch_store_metrics(client_id, store_id or "", start, end)
 
-    Parameters
-    ----------
-    date_range : tuple | None
-        (start_date_iso, end_date_iso) strings. Filters tickets.created_at.
-    """
+
+@st.cache_data(ttl=60)
+def _fetch_store_metrics(client_id: str, store_id: str,
+                         start: str, end: str) -> list[dict]:
+    """Cached fetch of store metrics with hashable arguments."""
     try:
         sb = get_client()
         query = (
@@ -24,8 +28,7 @@ def get_store_metrics(client_id: str, store_id: str | None = None,
         )
         if store_id:
             query = query.eq("store_id", store_id)
-        if date_range:
-            start, end = date_range
+        if start and end:
             query = query.gte("created_at", start).lte("created_at", end)
         return query.execute().data or []
     except Exception:
@@ -33,11 +36,15 @@ def get_store_metrics(client_id: str, store_id: str | None = None,
 
 
 def get_client_summary(client_id: str, date_range: tuple | None = None) -> dict:
-    """Aggregate metrics for a client: total tickets, spend, open count.
+    """Aggregate metrics for a client: total tickets, spend, open count."""
+    start = date_range[0] if date_range else ""
+    end = date_range[1] if date_range else ""
+    return _fetch_client_summary(client_id, start, end)
 
-    Returns a dict with keys: total_tickets, open_tickets, total_spend,
-    avg_cost.
-    """
+
+@st.cache_data(ttl=60)
+def _fetch_client_summary(client_id: str, start: str, end: str) -> dict:
+    """Cached fetch of client summary with hashable arguments."""
     try:
         sb = get_client()
 
@@ -47,8 +54,8 @@ def get_client_summary(client_id: str, date_range: tuple | None = None) -> dict:
             .select("id", count="exact")
             .eq("client_id", client_id)
         )
-        if date_range:
-            total_query = total_query.gte("created_at", date_range[0]).lte("created_at", date_range[1])
+        if start and end:
+            total_query = total_query.gte("created_at", start).lte("created_at", end)
         total_result = total_query.execute()
         total_tickets = total_result.count or 0
 
@@ -69,8 +76,8 @@ def get_client_summary(client_id: str, date_range: tuple | None = None) -> dict:
             .eq("client_id", client_id)
             .in_("status", ["completed", "closed"])
         )
-        if date_range:
-            spend_query = spend_query.gte("created_at", date_range[0]).lte("created_at", date_range[1])
+        if start and end:
+            spend_query = spend_query.gte("created_at", start).lte("created_at", end)
         spend_data = spend_query.execute().data or []
 
         costs = [row["actual_cost"] for row in spend_data if row.get("actual_cost")]
@@ -92,6 +99,7 @@ def get_client_summary(client_id: str, date_range: tuple | None = None) -> dict:
         }
 
 
+@st.cache_data(ttl=60)
 def get_resolution_times(client_id: str) -> list[dict]:
     """Return tickets with their resolution duration for avg-time analysis.
 
@@ -113,6 +121,7 @@ def get_resolution_times(client_id: str) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=60)
 def get_urgency_breakdown(client_id: str) -> dict:
     """Return ticket counts grouped by urgency level.
 

@@ -1,14 +1,14 @@
 """Reusable ticket display component."""
 
 import streamlit as st
-from theme.branding import status_badge, urgency_badge, STATUS_COLORS, URGENCY_COLORS
+from theme.branding import status_badge, urgency_badge
+from utils.constants import STATUS_COLORS, URGENCY_COLORS
 from utils.helpers import time_ago, format_currency, truncate
 
 
 def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str = None):
     """Render a compact ticket card for list views."""
     store = ticket.get("stores", {}) or {}
-    submitter = ticket.get("users", {}) or {}
     status = ticket.get("status", "submitted")
     urgency = ticket.get("urgency", "")
     category = ticket.get("category", "")

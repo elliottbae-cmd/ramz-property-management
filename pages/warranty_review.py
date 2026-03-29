@@ -30,7 +30,7 @@ from database.approvals import initiate_approval_chain
 from database.audit import log_action
 from theme.branding import render_header
 from utils.permissions import require_permission, can_access_psp_admin
-from utils.constants import STATUS_LABELS, URGENCY_COLORS
+from utils.constants import URGENCY_COLORS
 
 
 # ------------------------------------------------------------------

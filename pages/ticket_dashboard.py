@@ -5,10 +5,10 @@ Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import get_current_user, get_client
+from database.supabase_client import get_current_user
 from database.tenant import get_effective_client_id
-from database.stores import get_stores, get_stores_for_user
-from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, add_comment, update_ticket
+from database.stores import get_stores_for_user
+from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment, update_ticket
 from database.users import get_users_for_client
 from database.contractors import get_contractors
 from database.work_orders import create_work_order
@@ -62,11 +62,10 @@ def render():
         )
 
     with col3:
-        cat_options = {"all": "All Categories"} | {u: u for u in URGENCY_LEVELS}
-        # Use urgency levels from constants as a simple filter
+        urg_options = {"all": "All Urgencies"} | {u: u for u in URGENCY_LEVELS}
         urg_filter = st.selectbox(
-            "Urgency", list(cat_options.keys()),
-            format_func=lambda x: cat_options[x],
+            "Urgency", list(urg_options.keys()),
+            format_func=lambda x: urg_options[x],
         )
 
     with col4:
@@ -150,9 +149,9 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
         return
 
     # Get photos
-    photos = _get_ticket_photos(ticket_id)
+    photos = get_ticket_photos(ticket_id)
     comments = get_ticket_comments(ticket_id)
-    approvals = _get_ticket_approvals(ticket_id)
+    approvals = get_ticket_approvals(ticket_id)
 
     render_ticket_detail(ticket, photos, comments, approvals)
 
@@ -335,33 +334,3 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                     st.error("Failed to add comment.")
 
 
-def _get_ticket_photos(ticket_id: str) -> list[dict]:
-    """Fetch photos for a ticket."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("ticket_photos")
-            .select("*")
-            .eq("ticket_id", ticket_id)
-            .order("uploaded_at")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
-
-
-def _get_ticket_approvals(ticket_id: str) -> list[dict]:
-    """Fetch approval records for a ticket."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("approvals")
-            .select("*, users:approver_id(full_name)")
-            .eq("ticket_id", ticket_id)
-            .order("step_order")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []

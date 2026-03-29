@@ -7,7 +7,7 @@ Uses new multi-tenant module imports.
 import streamlit as st
 from database.supabase_client import get_current_user, get_client, upload_photo
 from database.tenant import get_effective_client_id
-from database.stores import get_stores, get_stores_for_user
+from database.stores import get_stores_for_user
 from database.equipment import get_equipment, create_equipment
 from database.warranty_lookup import check_warranty_status, save_warranty_from_ai
 from database.tickets import create_ticket
@@ -45,6 +45,26 @@ def _get_form_categories(client_id: str | None) -> list[dict]:
             .execute()
         )
         return result_global.data or []
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=300)
+def _get_brand_equipment_options(client_id: str, brand: str, category: str) -> list[dict]:
+    """Load brand equipment options for a specific brand + category."""
+    try:
+        sb = get_client()
+        result = (
+            sb.table("brand_equipment_options")
+            .select("*")
+            .eq("client_id", client_id)
+            .eq("brand", brand)
+            .eq("category", category)
+            .eq("is_active", True)
+            .order("display_order")
+            .execute()
+        )
+        return result.data or []
     except Exception:
         return []
 
@@ -146,24 +166,10 @@ def render():
     selected_store = next((s for s in stores if s["id"] == selected_store_id), {})
     store_brand = selected_store.get("brand", "")
 
-    # Load equipment options for this brand + category
+    # Load equipment options for this brand + category (cached)
     brand_equip_options = []
     if store_brand and category_name:
-        try:
-            sb = get_client()
-            result = (
-                sb.table("brand_equipment_options")
-                .select("*")
-                .eq("client_id", client_id)
-                .eq("brand", store_brand)
-                .eq("category", category_name)
-                .eq("is_active", True)
-                .order("display_order")
-                .execute()
-            )
-            brand_equip_options = result.data or []
-        except Exception:
-            brand_equip_options = []
+        brand_equip_options = _get_brand_equipment_options(client_id, store_brand, category_name)
 
     equipment_choices = {"": "-- Select Equipment --"}
     for opt in brand_equip_options:

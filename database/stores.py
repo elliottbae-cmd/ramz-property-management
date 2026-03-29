@@ -22,6 +22,7 @@ def get_stores(client_id: str, active_only: bool = True) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=300)
 def get_store(store_id: str) -> dict | None:
     """Fetch a single store by id."""
     try:
@@ -66,6 +67,7 @@ def update_store(store_id: str, data: dict) -> dict | None:
         return None
 
 
+@st.cache_data(ttl=300)
 def get_user_stores(user_id: str) -> list[dict]:
     """Return stores a user oversees (via user_stores junction table)."""
     try:

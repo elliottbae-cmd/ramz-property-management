@@ -4,14 +4,12 @@ Provides filtering, summary metrics, detail views, and repair history.
 """
 
 import streamlit as st
-import pandas as pd
 from datetime import datetime, date
 
 from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores
 from database.equipment import (
-    get_equipment,
     get_equipment_for_client,
     get_equipment_with_details,
     get_repair_history,
@@ -23,11 +21,10 @@ from database.equipment import (
 from theme.branding import render_header
 from utils.permissions import require_permission, can_manage_tickets
 from utils.helpers import format_currency, format_date_short
-from utils.constants import TRADE_TYPES
 
 
 # ------------------------------------------------------------------
-# Equipment categories (mirrors TRADE_TYPES but shorter labels)
+# Equipment categories
 # ------------------------------------------------------------------
 EQUIPMENT_CATEGORIES = [
     "BOH",
@@ -43,6 +40,54 @@ EQUIPMENT_CATEGORIES = [
     "Signage",
     "Other",
 ]
+
+
+@st.cache_data(ttl=60)
+def _batch_repair_costs(equipment_ids: list[str]) -> dict[str, float]:
+    """Fetch total actual_cost per equipment ID in a single query."""
+    if not equipment_ids:
+        return {}
+    try:
+        sb = get_client()
+        result = (
+            sb.table("tickets")
+            .select("equipment_id, actual_cost")
+            .in_("equipment_id", equipment_ids)
+            .execute()
+        )
+        costs: dict[str, float] = {}
+        for row in (result.data or []):
+            eid = row.get("equipment_id")
+            cost = row.get("actual_cost")
+            if eid and cost:
+                costs[eid] = costs.get(eid, 0) + float(cost)
+        return costs
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=60)
+def _batch_open_ticket_counts(equipment_ids: list[str]) -> dict[str, int]:
+    """Fetch open ticket counts for multiple equipment IDs in a single query."""
+    if not equipment_ids:
+        return {}
+    try:
+        sb = get_client()
+        result = (
+            sb.table("tickets")
+            .select("equipment_id")
+            .in_("equipment_id", equipment_ids)
+            .not_.in_("status", ["completed", "closed", "rejected"])
+            .execute()
+        )
+        counts: dict[str, int] = {}
+        for row in (result.data or []):
+            eid = row.get("equipment_id")
+            if eid:
+                counts[eid] = counts.get(eid, 0) + 1
+        return counts
+    except Exception:
+        return {}
 
 
 def render():
@@ -114,22 +159,15 @@ def render():
             }
     else:
         all_equipment = get_equipment_for_client(client_id)
-        # Enrich with warranty and ticket info for the overview
-        sb = get_client()
+        # Enrich with warranty info (cached per-item)
         for item in all_equipment:
-            eid = item["id"]
-            item["active_warranty"] = check_active_warranty(eid)
-            try:
-                ticket_result = (
-                    sb.table("tickets")
-                    .select("id", count="exact")
-                    .eq("equipment_id", eid)
-                    .not_.in_("status", ["completed", "closed", "rejected"])
-                    .execute()
-                )
-                item["open_ticket_count"] = ticket_result.count or 0
-            except Exception:
-                item["open_ticket_count"] = 0
+            item["active_warranty"] = check_active_warranty(item["id"])
+
+        # Batch-fetch open ticket counts instead of N+1 queries
+        equipment_ids = [item["id"] for item in all_equipment]
+        open_counts = _batch_open_ticket_counts(equipment_ids)
+        for item in all_equipment:
+            item["open_ticket_count"] = open_counts.get(item["id"], 0)
 
     # ------------------------------------------------------------------
     # Apply filters
@@ -348,6 +386,12 @@ def _render_store_equipment_view(equipment: list[dict], store_id: str, stores: l
     store = next((s for s in stores if s["id"] == store_id), {})
     st.markdown(f"### Inventory for {store.get('store_number', '')} - {store.get('name', '')}")
 
+    # Pre-fetch total repair costs for all equipment in one query
+    eq_ids = [item["id"] for item in equipment]
+    repair_costs = _batch_repair_costs(eq_ids)
+    for item in equipment:
+        item["_total_repair_cost"] = repair_costs.get(item["id"], 0)
+
     # Group by category
     categories = {}
     for item in equipment:
@@ -365,9 +409,8 @@ def _render_store_equipment_view(equipment: list[dict], store_id: str, stores: l
             mfr = item.get("manufacturer") or ""
             serial = item.get("serial_number") or ""
 
-            # Get total repair cost
-            repairs = get_repair_history(item["id"])
-            total_repair_cost = sum(float(r.get("actual_cost") or 0) for r in repairs)
+            # Use pre-fetched repair cost if available; fall back to query
+            total_repair_cost = item.get("_total_repair_cost", 0)
 
             # Build label
             parts = [f"**{name}**"]

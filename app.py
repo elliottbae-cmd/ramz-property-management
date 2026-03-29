@@ -63,13 +63,13 @@ if tier == "psp":
     if can_access_psp_admin():
         nav_items["PSP Admin"] = "psp_admin"
 
-        # Warranty Review with pending count badge
+        # Warranty Review with pending indicator (uses cached ticket query)
         try:
             from database.tenant import get_effective_client_id as _get_eci
             _wr_client = _get_eci()
             if _wr_client:
                 from database.tickets import get_tickets_for_client as _get_tfc
-                _wr_tickets = _get_tfc(_wr_client, filters={"status": "warranty_check"}, limit=200)
+                _wr_tickets = _get_tfc(_wr_client, filters={"status": "warranty_check"})
                 _wr_count = len(_wr_tickets)
                 if _wr_count > 0:
                     nav_items[f"Warranty Review ({_wr_count})"] = "warranty_review"

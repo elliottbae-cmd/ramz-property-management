@@ -5,16 +5,15 @@ Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import get_current_user, get_client
+from database.supabase_client import get_current_user
 from database.approvals import get_pending_approvals, approve_ticket, reject_ticket, check_all_approved
-from database.tickets import get_ticket, get_ticket_comments, update_ticket
+from database.tickets import get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, update_ticket
 from database.audit import log_action
 from database.tenant import get_effective_client_id
 from components.ticket_card import render_ticket_detail
 from theme.branding import render_header, urgency_badge, status_badge
 from utils.helpers import time_ago, format_currency
 from utils.permissions import require_permission, can_approve
-from utils.constants import APPROVAL_LEVELS
 
 
 def render():
@@ -87,9 +86,9 @@ def _render_approval_detail(ticket_id: str, user: dict):
         return
 
     # Get photos and comments
-    photos = _get_ticket_photos(ticket_id)
+    photos = get_ticket_photos(ticket_id)
     comments = get_ticket_comments(ticket_id)
-    approvals = _get_ticket_approvals(ticket_id)
+    approvals = get_ticket_approvals(ticket_id)
 
     render_ticket_detail(ticket, photos, comments, approvals)
 
@@ -145,33 +144,3 @@ def _render_approval_detail(ticket_id: str, user: dict):
                 st.error("Failed to reject.")
 
 
-def _get_ticket_photos(ticket_id: str) -> list[dict]:
-    """Fetch photos for a ticket."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("ticket_photos")
-            .select("*")
-            .eq("ticket_id", ticket_id)
-            .order("uploaded_at")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
-
-
-def _get_ticket_approvals(ticket_id: str) -> list[dict]:
-    """Fetch approval records for a ticket."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("approvals")
-            .select("*, users:approver_id(full_name)")
-            .eq("ticket_id", ticket_id)
-            .order("step_order")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []

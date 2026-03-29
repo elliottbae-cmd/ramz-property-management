@@ -4,12 +4,12 @@ Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import get_current_user, get_client
-from database.tickets import get_tickets_for_user, get_ticket, get_ticket_comments, add_comment
+from database.supabase_client import get_current_user
+from database.tickets import get_tickets_for_user, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment
 from components.ticket_card import render_ticket_card, render_ticket_detail
 from components.photo_upload import render_photo_upload, save_photos
 from theme.branding import render_header
-from utils.constants import TICKET_STATUSES, STATUS_LABELS
+from utils.constants import STATUS_LABELS
 
 
 def render():
@@ -83,11 +83,11 @@ def _render_ticket_detail_view(ticket_id: str, user: dict):
         return
 
     # Get photos from ticket_photos table
-    photos = _get_ticket_photos(ticket_id)
+    photos = get_ticket_photos(ticket_id)
     comments = get_ticket_comments(ticket_id)
 
     # Get approvals if any
-    approvals = _get_ticket_approvals(ticket_id)
+    approvals = get_ticket_approvals(ticket_id)
 
     render_ticket_detail(ticket, photos, comments, approvals)
 
@@ -144,33 +144,3 @@ def _render_ticket_detail_view(ticket_id: str, user: dict):
         st.rerun()
 
 
-def _get_ticket_photos(ticket_id: str) -> list[dict]:
-    """Fetch photos for a ticket."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("ticket_photos")
-            .select("*")
-            .eq("ticket_id", ticket_id)
-            .order("uploaded_at")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
-
-
-def _get_ticket_approvals(ticket_id: str) -> list[dict]:
-    """Fetch approval records for a ticket."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("approvals")
-            .select("*, users:approver_id(full_name)")
-            .eq("ticket_id", ticket_id)
-            .order("step_order")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []

@@ -80,6 +80,7 @@ def update_user(user_id: str, data: dict) -> dict | None:
         return None
 
 
+@st.cache_data(ttl=300)
 def get_users_by_role(client_id: str, role: str, active_only: bool = True) -> list[dict]:
     """Return users with a specific client_role within a client org."""
     try:

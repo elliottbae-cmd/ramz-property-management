@@ -8,7 +8,6 @@ from datetime import datetime, date, timedelta
 
 from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
-from database.stores import get_stores
 from database.equipment import (
     get_equipment_for_client,
     get_warranties,
@@ -46,10 +45,10 @@ def render():
         st.info("No equipment found for this client.")
         return
 
-    # Enrich with warranty data
+    # Enrich with warranty data (both functions are now cached per-item)
     for item in all_equipment:
         item["active_warranty"] = check_active_warranty(item["id"])
-        item["all_warranties"] = get_warranties(item["id"])
+        item["all_warranties"] = get_warranties(item["id"]) if not item["active_warranty"] else []
 
     # Tabs
     tab_active, tab_expiring, tab_claims, tab_lookup = st.tabs([
