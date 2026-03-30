@@ -155,6 +155,32 @@ def update_equipment(equip_id: str, data: dict) -> dict | None:
         return None
 
 
+def save_manufacture_date(equip_id: str, manufacture_date, decode_method: str = "") -> bool:
+    """Save a decoded manufacture date back to the equipment record.
+
+    Parameters
+    ----------
+    equip_id        : equipment UUID
+    manufacture_date: date object or ISO string (YYYY-MM-DD)
+    decode_method   : human-readable description of how the date was decoded
+
+    Returns True on success, False on failure.
+    """
+    try:
+        if hasattr(manufacture_date, "isoformat"):
+            date_str = manufacture_date.isoformat()
+        else:
+            date_str = str(manufacture_date)[:10]
+
+        update_equipment(equip_id, {
+            "manufacture_date": date_str,
+            "serial_decode_method": decode_method or "Decoded from serial number",
+        })
+        return True
+    except Exception:
+        return False
+
+
 # ------------------------------------------------------------------
 # Warranty helpers
 # ------------------------------------------------------------------

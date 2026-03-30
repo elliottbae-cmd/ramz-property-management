@@ -24,7 +24,7 @@ from database.tickets import (
     add_comment,
     update_ticket,
 )
-from database.equipment import create_warranty, get_equipment_by_id
+from database.equipment import create_warranty, get_equipment_by_id, save_manufacture_date
 from database.warranty_lookup import check_warranty_status
 from database.approvals import initiate_approval_chain
 from database.audit import log_action
@@ -468,6 +468,63 @@ def _render_unknown_form(ticket_id: str):
 # Complete review action
 # ------------------------------------------------------------------
 
+def _save_ai_findings_to_equipment(equipment_id: str, ai_result: dict | None):
+    """Persist manufacture date and service agents from AI result to the equipment record.
+
+    Called on all review completion paths so the data is always saved regardless
+    of the warranty decision.
+    """
+    if not ai_result or not equipment_id:
+        return
+
+    ai = ai_result.get("ai_result") or ai_result  # handle both wrapper and raw formats
+
+    # Save manufacture date if decoded by Python serial decoder
+    mfg_date_str = ai.get("manufacture_date_from_serial", "")
+    mfg_source = ai.get("manufacture_date_source", "")
+    decode_method = ai.get("serial_decode_notes", "") or ai.get("manufacture_date_from_serial", "")
+
+    if mfg_date_str and "Unknown" not in mfg_date_str and mfg_source == "python_decoder":
+        # Extract just the date portion (first 10 chars = YYYY-MM-DD)
+        import re as _re
+        _m = _re.search(r"(\d{4}-\d{2}-\d{2})", mfg_date_str)
+        if _m:
+            from datetime import datetime as _dt
+            try:
+                mfg_date = _dt.strptime(_m.group(1), "%Y-%m-%d").date()
+                save_manufacture_date(equipment_id, mfg_date, decode_method)
+            except (ValueError, TypeError):
+                pass
+
+    # Save authorized service agents into equipment notes if found
+    agents = ai.get("authorized_service_agents", [])
+    if agents:
+        agent_lines = []
+        for a in agents:
+            name = a.get("name", "")
+            phone = a.get("phone", "")
+            city = a.get("city", "")
+            if name:
+                agent_lines.append(f"  • {name} — {phone} ({city})")
+        if agent_lines:
+            from database.equipment import update_equipment, get_equipment_by_id
+            existing = get_equipment_by_id(equipment_id) or {}
+            existing_notes = existing.get("notes") or ""
+            agents_block = "Authorized Service Agents (from warranty check):\n" + "\n".join(agent_lines)
+            # Replace existing agents block if present, otherwise append
+            import re as _re2
+            if "Authorized Service Agents" in existing_notes:
+                new_notes = _re2.sub(
+                    r"Authorized Service Agents \(from warranty check\):.*?(?=\n\n|\Z)",
+                    agents_block,
+                    existing_notes,
+                    flags=_re2.DOTALL,
+                )
+            else:
+                new_notes = (existing_notes + "\n\n" + agents_block).strip()
+            update_equipment(equipment_id, {"notes": new_notes})
+
+
 def _complete_review(
     ticket: dict,
     user: dict,
@@ -477,8 +534,10 @@ def _complete_review(
     install_date: date | None,
 ):
     """Process the warranty review decision and update the ticket."""
-    ticket_id = ticket["id"]
-    user_id = user["id"]
+    # Always save AI findings to equipment record regardless of decision
+    equipment_id = ticket.get("equipment_id")
+    if equipment_id and ai_result:
+        _save_ai_findings_to_equipment(equipment_id, ai_result)
 
     if decision == "Under Warranty":
         _complete_under_warranty(ticket, user, client_id, ai_result, install_date)
