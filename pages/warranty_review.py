@@ -204,14 +204,15 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
         with ec4:
             st.text_input("Serial #", value=serial_number or "N/A", disabled=True, key=f"wr_serial_{ticket_id}")
 
-        # ---- Install/Purchase Date ----
-        st.markdown("**Install / Purchase Date**")
-        install_date = st.date_input(
-            "Enter the install or purchase date for this equipment",
-            value=None,
-            key=f"wr_install_date_{ticket_id}",
-            help="Enter the date this equipment was installed or purchased. Used to calculate warranty coverage.",
-        )
+        # ---- Install/Purchase Date (optional fallback) ----
+        with st.expander("📅 Override: Enter install/purchase date manually (optional)", expanded=False):
+            st.caption("The AI will attempt to decode the manufacture date from the serial number. "
+                       "Only enter a date here if you have the actual install/purchase date and want to override.")
+            install_date = st.date_input(
+                "Install or purchase date",
+                value=None,
+                key=f"wr_install_date_{ticket_id}",
+            )
 
         # ---- AI Warranty Check ----
         st.markdown("---")
@@ -219,7 +220,7 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
         # Session state key for AI results
         ai_key = f"wr_ai_result_{ticket_id}"
 
-        if st.button("Run AI Warranty Check", key=f"wr_ai_btn_{ticket_id}", type="secondary"):
+        if st.button("🔍 Run AI Warranty Check", key=f"wr_ai_btn_{ticket_id}", type="primary", use_container_width=True):
             st.session_state[expand_key] = True  # Keep expanded
             equipment_data = {
                 "equipment_name": equip_name,
@@ -227,8 +228,13 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
                 "model": model or "",
                 "serial_number": serial_number or "",
                 "category": ticket.get("category", ""),
-                "install_date": install_date.isoformat() if install_date else "Unknown",
             }
+            # Only pass install_date if manually entered
+            if install_date:
+                equipment_data["install_date"] = install_date.isoformat()
+            else:
+                equipment_data["install_date"] = "Unknown - decode from serial number"
+
             if equipment_id:
                 equipment_data["equipment_id"] = equipment_id
 
@@ -244,7 +250,7 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
                         "state": store_info.get("state", ""),
                     }
 
-            with st.spinner("Running AI warranty research (checking warranty, serial number date, and nearby service agents)..."):
+            with st.spinner("🔍 Searching warranty info, decoding serial number, and finding nearby service agents..."):
                 ai_result = check_warranty_status(equipment_data, install_date=install_date, store_location=store_location)
 
             st.session_state[ai_key] = ai_result

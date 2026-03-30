@@ -227,13 +227,15 @@ def _build_search_queries(equipment_data: dict, store_location: dict = None) -> 
         city = store_location.get("city", "")
         state = store_location.get("state", "")
         if city and state:
-            queries.append(f"{manufacturer} authorized service agent repair near {city} {state}")
+            queries.append(f"{manufacturer} locate service representative authorized repair {city} {state}")
+            # Some manufacturers use specific URL patterns
+            queries.append(f"site:{manufacturer.lower().replace(' ', '')}america.com OR site:{manufacturer.lower().replace(' ', '')}.com service rep locator {state}")
 
     # Fallback queries if we don't have enough
     if len(queries) < 2 and manufacturer:
         queries.append(f"{manufacturer} warranty registration lookup claim")
 
-    return queries[:4]  # cap at 4 queries
+    return queries[:5]  # cap at 5 queries
 
 
 # ------------------------------------------------------------------
@@ -320,10 +322,13 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
             "by adding the typical warranty period to the install date and comparing to today's date.\n"
             "4. Manufacturer contact information for warranty claims (phone, website)\n"
             "5. The general warranty claim process\n"
-            "6. SERIAL NUMBER DATE DECODING: Many manufacturers encode the manufacture date "
-            "in the serial number. Look at the search results for how this manufacturer formats "
-            f"serial numbers. Try to decode the manufacture date from serial number '{serial_number}'. "
-            "If you can determine the manufacture date, use it to refine the warranty expiry calculation.\n"
+            "6. SERIAL NUMBER DATE DECODING (CRITICAL): Many commercial equipment manufacturers encode "
+            "the manufacture date in the serial number. Search results may explain the serial number format "
+            "for this manufacturer. DECODE the manufacture date from serial number '" + serial_number + "'. "
+            "This is the PRIMARY method for determining warranty status — more reliable than install date. "
+            "If you can determine the manufacture date, USE IT to calculate warranty expiry instead of install date. "
+            "Common patterns: first letter = month (A=Jan, B=Feb...), digits = year, etc. "
+            "Explain your decoding logic in the manufacture_date_from_serial field.\n"
             "7. AUTHORIZED SERVICE AGENTS: Based on the search results, find up to 3 manufacturer-authorized "
             f"service companies or repair agents near the store location ({store_context.strip() or 'unknown'}). "
             "Include company name, phone, and city for each.\n"
