@@ -156,7 +156,7 @@ IMPORTANT RULES:
 
     message = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=4000,
+        max_tokens=8000,
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -165,7 +165,120 @@ IMPORTANT RULES:
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
-    return json.loads(raw)
+    # Try to parse as-is first
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # If the response was cut off, try to repair it by truncating to the last
+    # complete equipment item and closing all open structures
+    repaired = _repair_truncated_json(raw)
+    if repaired:
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            pass
+
+    # Final fallback: ask Claude to re-parse just the equipment table
+    # with a simpler prompt that produces less output
+    return _parse_equipment_only(client, pdf_text)
+
+
+# ------------------------------------------------------------------
+# JSON repair helpers
+# ------------------------------------------------------------------
+
+def _repair_truncated_json(raw: str) -> str | None:
+    """Attempt to repair JSON that was cut off mid-response.
+
+    Strategy: find the last complete equipment object (ends with }),
+    truncate there, then close all open arrays/objects.
+    """
+    # Find the last complete '}' that closes an equipment item
+    # Equipment items end with a closing brace before a comma or the array close
+    last_good = raw.rfind('},\n')
+    if last_good == -1:
+        last_good = raw.rfind('},')
+    if last_good == -1:
+        last_good = raw.rfind('}')
+
+    if last_good == -1:
+        return None
+
+    # Truncate after last complete object
+    truncated = raw[:last_good + 1]
+
+    # Count unmatched open brackets/braces to figure out what needs closing
+    opens = truncated.count('{') - truncated.count('}')
+    open_arrays = truncated.count('[') - truncated.count(']')
+
+    # Close any open structures
+    closing = ''
+    for _ in range(opens):
+        closing += '}'
+    for _ in range(open_arrays):
+        closing = ']' + closing
+
+    repaired = truncated + closing
+    return repaired
+
+
+def _parse_equipment_only(client, pdf_text: str) -> dict:
+    """Fallback: ask Claude to return only the equipment list with a simpler,
+    more compact prompt that fits in fewer tokens."""
+
+    simple_prompt = f"""Extract the equipment warranty table from this closeout PDF.
+Return ONLY a JSON object with these fields. Be concise — use short values.
+
+PDF TEXT (first 12000 chars):
+{pdf_text[:12000]}
+
+Return this JSON (no other text):
+{{
+  "store_info": {{"address": "", "city": "", "state": "", "zip": "", "phone": "", "opening_date": null, "cofo_date": null}},
+  "health_permit": {{"permit_number": "", "expiry_date": null, "issue_date": null, "issuing_authority": ""}},
+  "vendor_contacts": [],
+  "equipment_list": [
+    {{
+      "name": "short description",
+      "manufacturer": "name",
+      "manufacturer_phone": "",
+      "manufacturer_website": "",
+      "model": "",
+      "serial_numbers": [],
+      "category": "Refrigeration|Ice Machine|Cooking|Fryer|Custard|Beverage|HVAC|POS|Safety|Other",
+      "warranty_terms": "raw text",
+      "warranty_years_pl": 0,
+      "warranty_years_parts": 0,
+      "warranty_years_compressor": 0,
+      "service_agent_name": "",
+      "service_agent_phone": "",
+      "contact_factory_first": false
+    }}
+  ]
+}}
+Split serial numbers containing "/" or "," into the array. Only respond with JSON."""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=8000,
+        messages=[{"role": "user", "content": simple_prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+
+    # Try repair again if needed
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        repaired = _repair_truncated_json(raw)
+        if repaired:
+            return json.loads(repaired)
+        raise
 
 
 # ------------------------------------------------------------------
