@@ -504,41 +504,98 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
         "web_search_used": tavily_available,
     }
 
-    # Post-processing validation: if manufacture_date_from_serial was decoded,
-    # sanity-check it against estimated_expiry. If expiry is in the past but
-    # manufacture date is recent (within 2 years), the expiry is likely wrong.
+    # ------------------------------------------------------------------
+    # Post-processing: sanity-check decoded manufacture date + expiry
+    # ------------------------------------------------------------------
     mfg_raw = result.get("manufacture_date_from_serial", "")
     expiry_raw = result.get("estimated_expiry", "Unknown")
-    if mfg_raw and "Unknown" not in mfg_raw and expiry_raw and "Unknown" not in expiry_raw:
-        try:
-            # Parse manufacture date (YYYY-MM or YYYY-MM-DD)
-            mfg_parts = mfg_raw[:7]  # Take YYYY-MM portion
-            mfg_date = datetime.strptime(mfg_parts, "%Y-%m").date()
-            expiry_date = datetime.strptime(expiry_raw[:10], "%Y-%m-%d").date()
-            # If manufacture date is within last 3 years but expiry is in the past, flag it
-            if mfg_date >= date(date.today().year - 3, 1, 1) and expiry_date < date.today():
-                result["estimated_expiry"] = "Unknown - expiry date conflict (decoded manufacture date is recent but expiry appears past — PSP should verify)"
-                result["likely_under_warranty"] = True  # Err on side of caution
-                result["confidence"] = "low"
-                result["notes"] = (
-                    f"WARNING: Manufacture date decoded as {mfg_raw} (recent) but calculated expiry was "
-                    f"{expiry_raw} (past). This is a contradiction — the serial number decoding may be wrong. "
-                    "PSP should verify manufacture date directly with manufacturer. " + result.get("notes", "")
-                )
-        except (ValueError, TypeError):
-            pass  # Can't parse dates — leave as-is
+    no_install = "Unknown" in install_date or install_date == "Unknown - decode from serial number"
 
-    # Also validate: if no manufacture date decoded but expiry is in the past,
-    # and no install date was provided, flag as uncertain rather than confident
-    if "Unknown" in mfg_raw and expiry_raw and "Unknown" not in expiry_raw and "Unknown" not in install_date:
-        try:
-            expiry_date = datetime.strptime(expiry_raw[:10], "%Y-%m-%d").date()
-            if expiry_date < date.today() and install_date == "Unknown - decode from serial number":
-                result["estimated_expiry"] = "Unknown - cannot verify without manufacture date or install date"
-                result["likely_under_warranty"] = False
-                result["confidence"] = "low"
-        except (ValueError, TypeError):
-            pass
+    mfg_date = None
+    expiry_date = None
+
+    # Try to parse manufacture date (handles "YYYY-MM-DD ...", "YYYY-MM ...", etc.)
+    if mfg_raw and "Unknown" not in mfg_raw:
+        # Extract the first date-like token (YYYY-MM-DD or YYYY-MM)
+        _m = re.search(r"(\d{4}-\d{2}(?:-\d{2})?)", mfg_raw)
+        if _m:
+            try:
+                _ds = _m.group(1)
+                if len(_ds) == 7:
+                    _ds += "-01"  # pad YYYY-MM to YYYY-MM-01
+                mfg_date = datetime.strptime(_ds, "%Y-%m-%d").date()
+                # Discard dates outside plausible commercial equipment range
+                if not (date(2000, 1, 1) <= mfg_date <= date(date.today().year + 1, 12, 31)):
+                    mfg_date = None
+                    result["manufacture_date_from_serial"] = (
+                        "Unknown - decoded date outside plausible range (2000–present), "
+                        "serial format may be wrong: " + mfg_raw
+                    )
+            except (ValueError, TypeError):
+                mfg_date = None
+
+    # Try to parse expiry date
+    if expiry_raw and "Unknown" not in expiry_raw:
+        _e = re.search(r"(\d{4}-\d{2}-\d{2})", expiry_raw)
+        if _e:
+            try:
+                expiry_date = datetime.strptime(_e.group(1), "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                expiry_date = None
+
+    today = date.today()
+
+    # Case 1: decoded mfg date is old (>5 years) AND expiry is in the past
+    # AND no install date provided → cannot confirm expired, flag for PSP
+    if mfg_date and expiry_date and expiry_date < today and no_install:
+        equipment_age_years = (today - mfg_date).days / 365.25
+        if equipment_age_years > 5:
+            result["manufacture_date_from_serial"] = (
+                f"Unverified - AI decoded as {mfg_raw[:10]}, but this cannot be confirmed "
+                "without the install date. PSP should verify with manufacturer."
+            )
+            result["estimated_expiry"] = (
+                "Unknown - serial decoding unverified. "
+                "PSP should confirm manufacture date with manufacturer before ruling out warranty."
+            )
+            result["likely_under_warranty"] = False
+            result["confidence"] = "low"
+            result["notes"] = (
+                f"⚠️ Serial decoding returned manufacture date {mfg_raw[:10]} "
+                f"(~{equipment_age_years:.0f} years ago) with expiry {expiry_raw[:10]} (past). "
+                "No install date was provided to corroborate this. "
+                "Serial number formats vary by product line — the decoded date may be wrong. "
+                "PSP should verify the actual manufacture date directly with the manufacturer "
+                "before treating this as expired. " + result.get("notes", "")
+            )
+
+    # Case 2: decoded mfg date is recent (within 5 years) but expiry is in the past
+    # → contradiction, serial decoding is almost certainly wrong
+    elif mfg_date and expiry_date and expiry_date < today:
+        equipment_age_years = (today - mfg_date).days / 365.25
+        if equipment_age_years <= 5:
+            result["estimated_expiry"] = (
+                f"Unknown - contradiction: serial decoded as {mfg_raw[:10]} "
+                f"(only {equipment_age_years:.1f} years ago) but expiry calculates to {expiry_raw[:10]} (past). "
+                "Serial format decoding is likely wrong. PSP should verify."
+            )
+            result["likely_under_warranty"] = True  # Err on side of caution
+            result["confidence"] = "low"
+            result["notes"] = (
+                f"⚠️ Contradiction: manufacture date decoded as {mfg_raw[:10]} "
+                f"({equipment_age_years:.1f} years ago) but expiry was {expiry_raw[:10]} (past). "
+                "This is mathematically inconsistent — serial decoding is likely wrong. "
+                "Flagged as likely under warranty until PSP verifies. " + result.get("notes", "")
+            )
+
+    # Case 3: no manufacture date decoded, expiry is in the past, no install date
+    # → cannot confirm expired at all
+    elif not mfg_date and expiry_date and expiry_date < today and no_install:
+        result["estimated_expiry"] = (
+            "Unknown - cannot confirm expiry without manufacture or install date"
+        )
+        result["likely_under_warranty"] = False
+        result["confidence"] = "low"
 
     # Cache the result
     _warranty_cache[key] = result
