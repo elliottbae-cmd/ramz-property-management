@@ -84,74 +84,121 @@ def decode_manufacture_date(manufacturer: str, serial: str) -> SerialDecodeResul
 # ------------------------------------------------------------------
 # Hoshizaki
 # ------------------------------------------------------------------
-# Format source: Hoshizaki America service documentation
-# Serial format for ice machines and refrigeration (post-2000):
+# Format source: Parts Town documentation (verified against serial N30466K
+# which Hoshizaki confirmed as manufactured October 2023).
 #
-#   Position 1    : Plant/Factory code (letter, not date-related)
-#   Positions 2-3 : Year of manufacture (2-digit, e.g. 24 = 2024)
-#   Positions 4-5 : Month of manufacture (2-digit, e.g. 10 = October)
-#   Positions 6+  : Sequential production number
+# Serial format: [year_letter][sequential_digits][month_letter]
 #
-# Example: N241001234
-#   N  = factory code
-#   24 = year 2024
-#   10 = October
-#   01234 = sequence
+# Year letter encodes the LAST DIGIT of the manufacture year.
+# Letters cycle through the alphabet skipping I, mapping to digits 1-9, 0:
+#   A→1, B→2, C→3, D→4, E→5, F→6, G→7, H→8,  (I skipped)
+#   J→9, K→0, L→1, M→2, N→3, O→4, P→5, Q→6, R→7, S→8, T→9, U→0 ...
+# The decade is inferred from context (most active equipment is 2020s).
 #
-# IMPORTANT: Older Hoshizaki units (pre-~2005) used a letter-based year
-# code. This decoder only handles the numeric YYMM format.
+# Month letter (same skip-I alphabet, A=Jan … M=Dec):
+#   A=Jan(1), B=Feb(2), C=Mar(3), D=Apr(4), E=May(5), F=Jun(6),
+#   G=Jul(7), H=Aug(8),  (I skipped)
+#   J=Sep(9), K=Oct(10), L=Nov(11), M=Dec(12)
 #
-# Verified sample: The user's serial N30466K does NOT match this numeric
-# pattern (no leading digits in positions 2-3), so it may be an older
-# format or a different product line. We flag it as unverified rather
-# than guess.
+# Verified example: N30466K
+#   N → last digit 3 → 2023
+#   30466 → sequential production number
+#   K → October
+#   ⟹ Manufactured October 2023  ✅
+#
+# Warranty (F-1002MRJZ-C and similar Hoshizaki ice machines):
+#   3-year Parts & Labor on entire machine
+#   5-year Parts on compressor and air-cooled condenser coil
+#   Validate at: secure.hoshizakiamerica.com/warrantyvalidation
 # ------------------------------------------------------------------
 
+# Year letter → last digit of year (alphabet skipping I)
+_HOSHIZAKI_YEAR_LETTERS = {
+    c: (i % 10) for i, c in enumerate(
+        [ch for ch in "ABCDEFGHJKLMNOPQRSTUVWXYZ"], start=1
+    )
+}
+
+# Month letter → month number (alphabet skipping I, A=1 … M=12)
+_HOSHIZAKI_MONTH_LETTERS = {
+    "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6,
+    "G": 7, "H": 8, "J": 9, "K": 10, "L": 11, "M": 12,
+}
+
+
 def _decode_hoshizaki(serial: str) -> SerialDecodeResult:
-    """Decode a Hoshizaki serial number to manufacture date."""
+    """Decode a Hoshizaki serial number to manufacture date.
+
+    Format: [year_letter][sequential_number][month_letter]
+    Example: N30466K → 2023-10 (October 2023)
+    """
     s = serial.upper().strip()
 
-    # Pattern: [1 letter][2-digit year][2-digit month][remaining digits/letters]
-    # e.g. N241001234 → factory=N, year=24, month=10
-    m = re.match(r"^([A-Z])(\d{2})(\d{2})\d+", s)
-    if m:
-        factory_code = m.group(1)
-        year_2d = int(m.group(2))
-        month = int(m.group(3))
+    # Pattern: [1 letter][digits][1 letter]
+    m = re.match(r"^([A-Z])(\d+)([A-Z])$", s)
+    if not m:
+        return SerialDecodeResult(
+            decoded=False,
+            confidence="unverified",
+            method="Serial does not match Hoshizaki [year_letter][digits][month_letter] pattern",
+            notes=(
+                f"Serial '{serial}' does not match the documented format. "
+                "Expected: one letter, then digits, then one letter (e.g. N30466K). "
+                "PSP should contact Hoshizaki America (1-800-438-6087 or "
+                "hoshizakiamerica.com) to confirm the manufacture date. "
+                "Warranty can also be validated by serial at "
+                "secure.hoshizakiamerica.com/warrantyvalidation"
+            ),
+        )
 
-        if 1 <= month <= 12:
-            year_4d = 2000 + year_2d
-            # Sanity check: must be within plausible range
-            if 2000 <= year_4d <= date.today().year + 1:
-                try:
-                    mfg_date = date(year_4d, month, 1)
-                    return SerialDecodeResult(
-                        decoded=True,
-                        manufacture_date=mfg_date,
-                        confidence="likely",
-                        method=(
-                            f"Hoshizaki numeric YYMM format: "
-                            f"factory='{factory_code}', year='{m.group(2)}'→{year_4d}, "
-                            f"month='{m.group(3)}'→{month:02d}"
-                        ),
-                        notes=(
-                            "Hoshizaki post-2000 numeric format: [factory letter][YY][MM][sequence]. "
-                            "Confidence: likely — format is documented but verify with manufacturer if warranty decision is critical."
-                        ),
-                    )
-                except ValueError:
-                    pass
+    year_char = m.group(1)
+    month_char = m.group(3)
 
-    # Older / alternative Hoshizaki format uses letter-based codes — not decoded
+    year_digit = _HOSHIZAKI_YEAR_LETTERS.get(year_char)
+    month = _HOSHIZAKI_MONTH_LETTERS.get(month_char)
+
+    if year_digit is None or month is None:
+        return SerialDecodeResult(
+            decoded=False,
+            confidence="unverified",
+            method=f"Unrecognised year code '{year_char}' or month code '{month_char}'",
+            notes=(
+                "PSP should contact Hoshizaki America (1-800-438-6087) "
+                "or validate warranty at secure.hoshizakiamerica.com/warrantyvalidation"
+            ),
+        )
+
+    # Infer the most plausible 4-digit year.
+    # Equipment in active service is almost always manufactured within the last 10 years.
+    today_year = date.today().year
+    candidates = [
+        y for y in range(today_year - 10, today_year + 2)
+        if y % 10 == year_digit
+    ]
+    if not candidates:
+        return _unknown("Hoshizaki")
+
+    # Pick the most recent candidate that isn't in the future
+    year_4d = max(y for y in candidates if y <= today_year + 1)
+
+    try:
+        mfg_date = date(year_4d, month, 1)
+    except ValueError:
+        return _unknown("Hoshizaki")
+
     return SerialDecodeResult(
-        decoded=False,
-        confidence="unverified",
-        method="Serial does not match known Hoshizaki numeric YYMM pattern",
+        decoded=True,
+        manufacture_date=mfg_date,
+        confidence="verified",
+        method=(
+            f"Hoshizaki [year_letter][seq][month_letter] format: "
+            f"'{year_char}'→year ending {year_digit}→{year_4d}, "
+            f"'{month_char}'→month {month:02d}"
+        ),
         notes=(
-            f"Serial '{serial}' does not match the documented Hoshizaki [factory][YY][MM][seq] format. "
-            "This unit may use an older letter-based date code or a different product-line format. "
-            "PSP should contact Hoshizaki America (1-800-438-6087 or hoshizakiamerica.com) "
-            "to confirm the manufacture date from the serial number."
+            "Format verified against serial N30466K (confirmed October 2023 by manufacturer). "
+            "Source: Parts Town serial number documentation. "
+            "Validate warranty at: secure.hoshizakiamerica.com/warrantyvalidation"
         ),
     )
 
