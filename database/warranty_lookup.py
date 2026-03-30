@@ -368,26 +368,51 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
         if city and state:
             store_context = f"Store Location: {city}, {state}\n"
 
-    # Determine the best start date for expiry calculation
+    # Determine the best start date for expiry calculation.
+    # Priority: install date > manufacture date > unknown.
+    # Most manufacturers start the warranty clock from installation, not manufacture.
+    # If an install date is known, use it. Fall back to manufacture date only if no
+    # install date is on file.
     no_install = "Unknown" in install_date
-    if serial_decode.decoded and serial_decode.manufacture_date:
-        start_date_str = serial_decode.manufacture_date.isoformat()
-        start_date_label = f"manufacture date {start_date_str} (decoded from serial)"
-    elif not no_install:
+
+    has_install = not no_install
+    has_mfg = serial_decode.decoded and serial_decode.manufacture_date
+
+    if has_install:
         start_date_str = install_date[:10]
-        start_date_label = f"install date {start_date_str}"
+        start_date_label = f"install date {start_date_str} (most manufacturers start warranty at installation)"
+    elif has_mfg:
+        start_date_str = serial_decode.manufacture_date.isoformat()
+        start_date_label = (
+            f"manufacture date {start_date_str} (decoded from serial — "
+            "use this only if no install date is available, as some manufacturers "
+            "start warranty from manufacture, others from installation)"
+        )
     else:
         start_date_str = None
         start_date_label = None
 
+    # Build mfg context note for Claude (informational even if not used for expiry)
+    mfg_info_note = ""
+    if has_mfg and has_install:
+        mfg_info_note = (
+            f"Note: manufacture date is {serial_decode.manufacture_date.isoformat()} "
+            f"(decoded from serial), but install date {install_date[:10]} is known "
+            "and takes priority for warranty start. "
+            "Mention both dates in your notes for PSP's reference.\n"
+        )
+
     expiry_instruction = (
-        f"Start date for warranty calculation: {start_date_label}\n"
+        f"Warranty start date: {start_date_label}\n"
         f"Formula: estimated_expiry = {start_date_str} + warranty_period_in_years\n"
         f"Show the arithmetic in notes: e.g. '{start_date_str} + 3 years = YYYY-MM-DD'\n"
-        f"Compare result to today ({today_str}) to set likely_under_warranty."
+        f"Compare result to today ({today_str}) to set likely_under_warranty.\n"
+        f"{mfg_info_note}"
+        "IMPORTANT: Check the search results to confirm whether this manufacturer "
+        "starts the warranty from installation date or manufacture date — they differ by brand."
         if start_date_str else
-        f"No manufacture date or install date is available. "
-        f"Set estimated_expiry = 'Unknown - no start date available' and likely_under_warranty = false."
+        "No install date or manufacture date is available. "
+        "Set estimated_expiry = 'Unknown - no start date available' and likely_under_warranty = false."
     )
 
     # ------------------------------------------------------------------
