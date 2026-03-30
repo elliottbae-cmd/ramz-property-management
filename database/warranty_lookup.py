@@ -273,6 +273,8 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
     install_date = equipment_data.get("install_date", "Unknown")
     category = equipment_data.get("category", "Unknown")
 
+    today_str = date.today().isoformat()
+
     if tavily_available:
         # Format search results for Claude
         search_context = "\n\n".join(
@@ -283,6 +285,8 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
             "You are a warranty research assistant for commercial restaurant equipment. "
             "Based on the following web search results and equipment details, extract "
             "warranty information.\n\n"
+            f"IMPORTANT: Today's date is {today_str}. Use this date when determining "
+            "if equipment is still under warranty. Do NOT assume any other date.\n\n"
             "== EQUIPMENT DETAILS ==\n"
             f"Equipment: {equipment_name}\n"
             f"Manufacturer/Make: {manufacturer}\n"
@@ -332,6 +336,8 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
             "You are a warranty research assistant for commercial restaurant equipment. "
             "Based on the following equipment details, provide warranty information "
             "from your knowledge.\n"
+            f"\nIMPORTANT: Today's date is {today_str}. Use this date when determining "
+            "if equipment is still under warranty. Do NOT assume any other date.\n"
             f"{fallback_note}\n"
             f"Equipment: {equipment_name}\n"
             f"Manufacturer/Make: {manufacturer}\n"
