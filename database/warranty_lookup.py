@@ -1,10 +1,11 @@
 """AI-powered warranty lookup using Tavily web search + Claude API.
 
-Three-step process:
+Four-step process:
 1. Check our equipment_warranties table first.
-2. If nothing on file, use Tavily to search the web for warranty info,
-   then feed results to Claude for structured extraction.
-3. Return structured results with a recommendation.
+2. Run deterministic Python serial number decoder (serial_decoder.py).
+   This is the ONLY source of manufacture date — Claude is NOT asked to decode serials.
+3. Use Tavily + Claude to look up warranty terms, contact info, service agents.
+4. Combine Python-decoded manufacture date with AI warranty period to compute expiry.
 """
 
 import hashlib
@@ -17,6 +18,7 @@ from datetime import datetime, date
 import streamlit as st
 from database.supabase_client import get_client
 from database.equipment import check_active_warranty, get_warranties
+from database.serial_decoder import decode_manufacture_date, format_decode_result
 
 
 # ------------------------------------------------------------------
@@ -291,20 +293,19 @@ def _state_abbr_to_name(abbr: str) -> str:
 # ------------------------------------------------------------------
 
 def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> dict:
-    """Use Tavily web search + Claude API to research warranty information.
+    """Research warranty information using Python serial decoder + Tavily + Claude.
 
     Flow:
-    1. Build search queries from equipment data.
-    2. Call Tavily to get real web results.
-    3. Feed results to Claude with a structured extraction prompt.
-    4. Return structured JSON.
-
-    Falls back to Claude-only if Tavily is unavailable or fails.
+    1. Run deterministic Python serial decoder — sole source of manufacture date.
+    2. Build Tavily search queries for warranty terms + service agents.
+    3. Feed Tavily results + decoded manufacture date to Claude.
+       Claude's ONLY jobs: warranty period, contact info, service agents, expiry math.
+    4. Combine everything into a structured result.
 
     Returns a dict with keys: likely_under_warranty, confidence,
     warranty_period, coverage_type, estimated_expiry,
     manufacturer_contact, claim_process, manufacture_date_from_serial,
-    authorized_service_agents, source_urls, notes.
+    manufacture_date_source, authorized_service_agents, source_urls, notes.
     """
     # Check cache first
     key = _cache_key(equipment_data)
@@ -315,14 +316,6 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
 
     client = anthropic.Anthropic(api_key=_get_secret("ANTHROPIC_API_KEY"))
 
-    # --- Tavily search ---
-    search_queries = _build_search_queries(equipment_data, store_location=store_location)
-    search_results = _tavily_search(search_queries)
-
-    tavily_available = bool(search_results)
-    tavily_key_set = bool(_get_secret("TAVILY_API_KEY"))
-
-    # --- Build Claude prompt ---
     manufacturer = equipment_data.get("manufacturer", "Unknown")
     model = equipment_data.get("model", "Unknown")
     equipment_name = equipment_data.get("equipment_name", "Unknown")
@@ -332,6 +325,41 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
 
     today_str = date.today().isoformat()
 
+    # ------------------------------------------------------------------
+    # Step 1: Deterministic Python serial number decode
+    # This is the ONLY place manufacture date comes from.
+    # Claude will NOT be asked to decode serials.
+    # ------------------------------------------------------------------
+    serial_decode = decode_manufacture_date(manufacturer, serial_number)
+    if serial_decode.decoded and serial_decode.manufacture_date:
+        mfg_date_str = serial_decode.manufacture_date.isoformat()
+        mfg_context = (
+            f"Manufacture Date (decoded by PSP system from serial number): {mfg_date_str}\n"
+            f"Decode method: {serial_decode.method}\n"
+            f"Decode confidence: {serial_decode.confidence}\n"
+        )
+        manufacture_date_from_serial = (
+            f"{mfg_date_str} — {serial_decode.method}"
+        )
+        manufacture_date_source = "python_decoder"
+    else:
+        mfg_context = (
+            f"Manufacture Date: Unknown (serial number format for '{manufacturer}' "
+            "is not in PSP's decoder library — do NOT attempt to decode it yourself)\n"
+        )
+        manufacture_date_from_serial = f"Unknown — {serial_decode.notes}"
+        manufacture_date_source = "not_decoded"
+
+    # ------------------------------------------------------------------
+    # Step 2: Tavily web search for warranty terms + service agents
+    # Remove serial decoding queries since Python handles that now
+    # ------------------------------------------------------------------
+    search_queries = _build_search_queries(equipment_data, store_location=store_location)
+    search_results = _tavily_search(search_queries)
+
+    tavily_available = bool(search_results)
+    tavily_key_set = bool(_get_secret("TAVILY_API_KEY"))
+
     # Build store location context
     store_context = ""
     if store_location:
@@ -340,119 +368,106 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
         if city and state:
             store_context = f"Store Location: {city}, {state}\n"
 
+    # Determine the best start date for expiry calculation
+    no_install = "Unknown" in install_date
+    if serial_decode.decoded and serial_decode.manufacture_date:
+        start_date_str = serial_decode.manufacture_date.isoformat()
+        start_date_label = f"manufacture date {start_date_str} (decoded from serial)"
+    elif not no_install:
+        start_date_str = install_date[:10]
+        start_date_label = f"install date {start_date_str}"
+    else:
+        start_date_str = None
+        start_date_label = None
+
+    expiry_instruction = (
+        f"Start date for warranty calculation: {start_date_label}\n"
+        f"Formula: estimated_expiry = {start_date_str} + warranty_period_in_years\n"
+        f"Show the arithmetic in notes: e.g. '{start_date_str} + 3 years = YYYY-MM-DD'\n"
+        f"Compare result to today ({today_str}) to set likely_under_warranty."
+        if start_date_str else
+        f"No manufacture date or install date is available. "
+        f"Set estimated_expiry = 'Unknown - no start date available' and likely_under_warranty = false."
+    )
+
+    # ------------------------------------------------------------------
+    # Step 3: Build Claude prompt — warranty terms + service agents ONLY
+    # ------------------------------------------------------------------
     if tavily_available:
-        # Format search results for Claude
         search_context = "\n\n".join(
             f"Source: {r['title']}\nURL: {r['url']}\nContent: {r['content']}"
             for r in search_results
         )
         prompt = (
-            "You are a warranty research assistant for commercial restaurant equipment. "
-            "Based on the following web search results and equipment details, extract "
-            "warranty information.\n\n"
-            f"IMPORTANT: Today's date is {today_str}. Use this date when determining "
-            "if equipment is still under warranty. Do NOT assume any other date.\n\n"
+            "You are a warranty research assistant for commercial restaurant equipment.\n"
+            f"IMPORTANT: Today's date is {today_str}.\n\n"
             "== EQUIPMENT DETAILS ==\n"
             f"Equipment: {equipment_name}\n"
             f"Manufacturer/Make: {manufacturer}\n"
             f"Model: {model}\n"
             f"Serial Number: {serial_number}\n"
-            f"Install Date: {install_date}\n"
+            f"{mfg_context}"
             f"Category: {category}\n"
             f"{store_context}\n"
             "== WEB SEARCH RESULTS ==\n"
             f"{search_context}\n\n"
-            "STEP 1 — FIND WARRANTY TERMS:\n"
-            "Find the specific warranty period for this manufacturer and equipment type "
-            "(e.g., '1 year parts and labor', '5 year compressor', '3 year sealed system'). "
-            "Note what the warranty covers.\n\n"
-            "STEP 2 — SERIAL NUMBER DATE DECODING:\n"
-            f"Search the web results for {manufacturer}'s DOCUMENTED serial number format. "
-            f"Attempt to decode the manufacture date from serial number '{serial_number}'.\n"
-            "RULES (must follow exactly):\n"
-            "- ONLY decode if the search results contain the manufacturer's DOCUMENTED serial format\n"
-            "- Do NOT guess — if no documentation found in search results, return 'Unknown - serial format not documented in search results'\n"
-            "- Do NOT apply another manufacturer's format to this one\n"
-            "- Do NOT rely on training knowledge — only use what the search results explicitly state\n"
-            "- Decoded date must be between 2000 and 2030, otherwise discard it\n"
-            "- Show step-by-step logic: 'Source: [URL] says format is XYZ... applying to serial: ...'\n\n"
-            "STEP 3 — CALCULATE EXPIRY DATE (THIS IS MANDATORY):\n"
-            "You MUST compute estimated_expiry as a specific YYYY-MM-DD date using this logic:\n"
-            "  a) If you successfully decoded a manufacture date in Step 2: start_date = manufacture_date\n"
-            f" b) Else if an install date was provided ('{install_date}' and it is a real date): start_date = install_date\n"
-            "  c) Else: estimated_expiry = 'Unknown - no start date available'\n"
-            "If you have a start_date: estimated_expiry = start_date + warranty_period_in_years\n"
-            "SHOW YOUR ARITHMETIC in the notes field, e.g.:\n"
-            "  'Manufacture date: 2024-10-07. Warranty: 3 years. Expiry = 2024-10-07 + 3 years = 2027-10-07'\n"
-            "  'Install date: 2022-06-01. Warranty: 1 year. Expiry = 2022-06-01 + 1 year = 2023-06-01'\n"
-            f"COMPARE estimated_expiry to today ({today_str}) to determine likely_under_warranty.\n"
-            "NEVER return a past expiry date for equipment with a recent manufacture or install date — "
-            "double-check your arithmetic if the result seems wrong.\n\n"
-            "STEP 4 — AUTHORIZED SERVICE AGENTS:\n"
+            "YOUR TASKS (do NOT decode the serial number — manufacture date is already provided above):\n\n"
+            "TASK 1 — WARRANTY TERMS:\n"
+            "From the search results, find the specific warranty period for this manufacturer "
+            "and equipment type (e.g., '1 year parts and labor', '5 year compressor'). "
+            "Note exactly what is covered.\n\n"
+            "TASK 2 — CALCULATE EXPIRY DATE:\n"
+            f"{expiry_instruction}\n"
+            "Put the arithmetic in the notes field.\n\n"
+            "TASK 3 — MANUFACTURER CONTACT:\n"
+            "Warranty claim phone number and/or website from search results.\n\n"
+            "TASK 4 — AUTHORIZED SERVICE AGENTS:\n"
             "From the search results, find up to 3 manufacturer-authorized service companies "
-            f"near the store location ({store_context.strip() or 'unknown location'}). "
-            "Search broadly — include agents in the same city, nearby cities, or anywhere in the same state. "
-            "A technician 1-2 hours away is still useful. "
-            "Include company name, phone number, and city/state for each. "
-            "Return [] only if the search results contain absolutely no service agent information.\n\n"
-            "STEP 5 — SOURCES AND CONFIDENCE:\n"
-            "List the most relevant source URLs. "
-            "Set confidence to 'high' if manufacturer's own site provided specific warranty terms, "
-            "'medium' if third-party or general sources, 'low' if estimating.\n\n"
-            "Respond in this exact JSON format:\n"
+            f"near {store_context.strip() or 'the store location'}. "
+            "Include agents in the same city, nearby cities, or anywhere in the same state — "
+            "a technician 1-2 hours away is still useful. "
+            "Include name, phone, and city/state. Return [] if none found.\n\n"
+            "TASK 5 — CONFIDENCE:\n"
+            "Set to 'high' if manufacturer's own site had specific terms, "
+            "'medium' for third-party sources, 'low' if estimating.\n\n"
+            "Respond with ONLY this JSON:\n"
             "{\n"
             '    "likely_under_warranty": true/false,\n'
             '    "warranty_period": "e.g., 1 year parts and labor, 5 years compressor",\n'
             '    "coverage_type": "e.g., Parts and labor, Parts only",\n'
-            '    "estimated_expiry": "YYYY-MM-DD (show arithmetic in notes) or Unknown - reason",\n'
-            '    "manufacture_date_from_serial": "YYYY-MM-DD or YYYY-MM decoded from serial, OR Unknown - serial format not documented in search results",\n'
+            '    "estimated_expiry": "YYYY-MM-DD or Unknown - reason",\n'
             '    "manufacturer_contact": "phone and/or website",\n'
             '    "claim_process": "brief steps to file a warranty claim",\n'
-            '    "authorized_service_agents": [{"name": "Company Name", "phone": "phone", "city": "city, state"}],\n'
+            '    "authorized_service_agents": [{"name": "...", "phone": "...", "city": "city, state"}],\n'
             '    "source_urls": ["url1", "url2"],\n'
             '    "confidence": "high/medium/low",\n'
-            '    "notes": "REQUIRED: Show expiry date arithmetic here. E.g.: Manufacture date 2024-10-07 + 3yr warranty = expiry 2027-10-07. Also note any exclusions or caveats."\n'
-            "}\n\n"
-            "NEVER fabricate dates. ALWAYS show your expiry arithmetic in notes. "
-            "Only respond with the JSON, no other text."
+            '    "notes": "Show expiry arithmetic here, e.g.: 2024-10-01 + 3yr = 2027-10-01. Note exclusions."\n'
+            "}"
         )
     else:
-        # Fallback: Claude-only (no web search results)
-        fallback_note = ""
-        if not tavily_key_set:
-            fallback_note = (
-                "\nNote: Web search is not configured (TAVILY_API_KEY not set), "
-                "so you are relying on your training data only. "
-                "Set confidence accordingly.\n"
-            )
+        fallback_note = (
+            "Note: No live web search results available — using training knowledge only. "
+            "Set confidence to 'low' or 'medium' at most.\n"
+        )
         prompt = (
-            "You are a warranty research assistant for commercial restaurant equipment. "
-            "Based on the following equipment details, provide warranty information "
-            "from your knowledge.\n"
-            f"\nIMPORTANT: Today's date is {today_str}. Use this date when determining "
-            "if equipment is still under warranty. Do NOT assume any other date.\n"
+            "You are a warranty research assistant for commercial restaurant equipment.\n"
+            f"IMPORTANT: Today's date is {today_str}.\n"
             f"{fallback_note}\n"
+            "== EQUIPMENT DETAILS ==\n"
             f"Equipment: {equipment_name}\n"
             f"Manufacturer/Make: {manufacturer}\n"
             f"Model: {model}\n"
             f"Serial Number: {serial_number}\n"
-            f"Install Date: {install_date}\n"
+            f"{mfg_context}"
             f"Category: {category}\n\n"
-            "STEP 1 — WARRANTY TERMS:\n"
-            "State the typical warranty period for this manufacturer and equipment type. "
-            "Note what it covers (parts, labor, compressor, sealed system, etc.).\n\n"
-            "STEP 2 — CALCULATE EXPIRY DATE (MANDATORY — show your arithmetic):\n"
-            f" a) If a real install date was provided ('{install_date}'): start_date = install_date\n"
-            "  b) Otherwise: estimated_expiry = 'Unknown - no install or manufacture date available'\n"
-            "If you have a start_date: estimated_expiry = start_date + warranty_period_in_years\n"
-            "EXAMPLE: 'Install date 2022-06-15. Warranty: 3 years. Expiry = 2022-06-15 + 3 years = 2025-06-15'\n"
-            f"COMPARE estimated_expiry to today ({today_str}) to set likely_under_warranty.\n"
-            "Put the arithmetic in the notes field. NEVER return an expiry date without showing the math.\n\n"
-            "STEP 3 — CONTACT AND CLAIM PROCESS:\n"
-            "Manufacturer warranty claim contact (phone, website) and general claim steps.\n\n"
-            "STEP 4 — EXCLUSIONS:\n"
-            "Note common warranty exclusions for this equipment type.\n\n"
-            "Respond in this exact JSON format:\n"
+            "YOUR TASKS (do NOT decode the serial number — manufacture date is already provided above):\n\n"
+            "TASK 1 — WARRANTY TERMS: Typical warranty period and coverage for this manufacturer/equipment.\n\n"
+            "TASK 2 — CALCULATE EXPIRY DATE:\n"
+            f"{expiry_instruction}\n"
+            "Put the arithmetic in notes.\n\n"
+            "TASK 3 — MANUFACTURER CONTACT: Warranty claim phone and website.\n\n"
+            "TASK 4 — EXCLUSIONS: Common warranty exclusions for this equipment.\n\n"
+            "Respond with ONLY this JSON:\n"
             "{\n"
             '    "likely_under_warranty": true/false,\n'
             '    "warranty_period": "e.g., 1 year parts and labor",\n'
@@ -461,12 +476,9 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
             '    "manufacturer_contact": "phone and/or website",\n'
             '    "claim_process": "brief steps",\n'
             '    "source_urls": [],\n'
-            '    "confidence": "high/medium/low",\n'
-            '    "notes": "REQUIRED: Show expiry arithmetic here. E.g.: Install date 2022-06-15 + 3yr warranty = expiry 2025-06-15. Also note exclusions."\n'
-            "}\n\n"
-            "Since you don't have live web search results, set confidence to 'low' or 'medium' at most.\n"
-            "NEVER return an estimated_expiry without showing the start_date + warranty_period arithmetic in notes.\n"
-            "Only respond with the JSON, no other text."
+            '    "confidence": "low/medium",\n'
+            '    "notes": "Show expiry arithmetic here. Note exclusions."\n'
+            "}"
         )
 
     message = client.messages.create(
@@ -475,127 +487,84 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
         messages=[{"role": "user", "content": prompt}],
     )
 
-    raw = message.content[0].text
-
-    # Strip markdown code fences if present
-    raw = raw.strip()
+    raw = message.content[0].text.strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
     parsed = json.loads(raw)
 
-    # Normalise expected fields
+    # Normalise expected fields — manufacture date comes from Python decoder, not Claude
     result = {
         "likely_under_warranty": bool(parsed.get("likely_under_warranty", False)),
         "confidence": str(parsed.get("confidence", "low")).lower(),
         "warranty_period": str(parsed.get("warranty_period", parsed.get("typical_warranty_period", "Unknown"))),
         "coverage_type": str(parsed.get("coverage_type", "Unknown")),
         "estimated_expiry": str(parsed.get("estimated_expiry", "Unknown")),
-        "manufacture_date_from_serial": str(parsed.get("manufacture_date_from_serial", "Unknown - not decoded")),
+        # Manufacture date is from Python decoder — authoritative and consistent
+        "manufacture_date_from_serial": manufacture_date_from_serial,
+        "manufacture_date_source": manufacture_date_source,
+        "serial_decode_confidence": serial_decode.confidence,
+        "serial_decode_notes": serial_decode.notes,
         "authorized_service_agents": list(parsed.get("authorized_service_agents", [])),
         "manufacturer_contact": str(parsed.get("manufacturer_contact", "Unknown")),
         "claim_process": str(parsed.get("claim_process", "Unknown")),
         "source_urls": list(parsed.get("source_urls", [])),
         "notes": str(parsed.get("notes", "")),
-        # Keep legacy key for backward compat with save_warranty_from_ai
+        # Keep legacy key for backward compat
         "typical_warranty_period": str(parsed.get("warranty_period", parsed.get("typical_warranty_period", "Unknown"))),
-        # Metadata
         "web_search_used": tavily_available,
     }
 
     # ------------------------------------------------------------------
-    # Post-processing: sanity-check decoded manufacture date + expiry
+    # Post-processing: expiry sanity check using Python-decoded mfg date
+    # (No need to re-validate serial decode here — Python decoder is authoritative)
     # ------------------------------------------------------------------
-    mfg_raw = result.get("manufacture_date_from_serial", "")
     expiry_raw = result.get("estimated_expiry", "Unknown")
-    no_install = "Unknown" in install_date or install_date == "Unknown - decode from serial number"
+    no_install = "Unknown" in install_date
+    today = date.today()
 
-    mfg_date = None
-    expiry_date = None
-
-    # Try to parse manufacture date (handles "YYYY-MM-DD ...", "YYYY-MM ...", etc.)
-    if mfg_raw and "Unknown" not in mfg_raw:
-        # Extract the first date-like token (YYYY-MM-DD or YYYY-MM)
-        _m = re.search(r"(\d{4}-\d{2}(?:-\d{2})?)", mfg_raw)
-        if _m:
-            try:
-                _ds = _m.group(1)
-                if len(_ds) == 7:
-                    _ds += "-01"  # pad YYYY-MM to YYYY-MM-01
-                mfg_date = datetime.strptime(_ds, "%Y-%m-%d").date()
-                # Discard dates outside plausible commercial equipment range
-                if not (date(2000, 1, 1) <= mfg_date <= date(date.today().year + 1, 12, 31)):
-                    mfg_date = None
-                    result["manufacture_date_from_serial"] = (
-                        "Unknown - decoded date outside plausible range (2000–present), "
-                        "serial format may be wrong: " + mfg_raw
-                    )
-            except (ValueError, TypeError):
-                mfg_date = None
-
-    # Try to parse expiry date
-    if expiry_raw and "Unknown" not in expiry_raw:
+    # If we have a verified Python-decoded manufacture date, check that Claude's
+    # calculated expiry is consistent with it (should be mfg_date + warranty_period)
+    if serial_decode.decoded and serial_decode.manufacture_date:
+        expiry_date = None
         _e = re.search(r"(\d{4}-\d{2}-\d{2})", expiry_raw)
         if _e:
             try:
                 expiry_date = datetime.strptime(_e.group(1), "%Y-%m-%d").date()
             except (ValueError, TypeError):
-                expiry_date = None
+                pass
 
-    today = date.today()
+        # If expiry is in the past but manufacture date is recent → Claude messed up the math
+        if expiry_date and expiry_date < today:
+            age_years = (today - serial_decode.manufacture_date).days / 365.25
+            if age_years < 5:
+                result["estimated_expiry"] = (
+                    f"Unknown — expiry arithmetic error: manufacture date "
+                    f"{serial_decode.manufacture_date} is only {age_years:.1f} years ago "
+                    f"but calculated expiry {expiry_date} is in the past. PSP should verify."
+                )
+                result["likely_under_warranty"] = True
+                result["confidence"] = "low"
+                result["notes"] = (
+                    f"⚠️ Expiry calculation error: manufacture date {serial_decode.manufacture_date} "
+                    f"+ warranty period should produce a future date, but got {expiry_date} (past). "
+                    "PSP should manually calculate: manufacture date + warranty period. "
+                ) + result.get("notes", "")
 
-    # Case 1: decoded mfg date is old (>5 years) AND expiry is in the past
-    # AND no install date provided → cannot confirm expired, flag for PSP
-    if mfg_date and expiry_date and expiry_date < today and no_install:
-        equipment_age_years = (today - mfg_date).days / 365.25
-        if equipment_age_years > 5:
-            result["manufacture_date_from_serial"] = (
-                f"Unverified - AI decoded as {mfg_raw[:10]}, but this cannot be confirmed "
-                "without the install date. PSP should verify with manufacturer."
-            )
-            result["estimated_expiry"] = (
-                "Unknown - serial decoding unverified. "
-                "PSP should confirm manufacture date with manufacturer before ruling out warranty."
-            )
+    # If no manufacture date and no install date, can't confirm expired
+    elif not serial_decode.decoded and no_install:
+        expiry_date = None
+        _e = re.search(r"(\d{4}-\d{2}-\d{2})", expiry_raw)
+        if _e:
+            try:
+                expiry_date = datetime.strptime(_e.group(1), "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                pass
+        if expiry_date and expiry_date < today:
+            result["estimated_expiry"] = "Unknown — cannot confirm without manufacture or install date"
             result["likely_under_warranty"] = False
             result["confidence"] = "low"
-            result["notes"] = (
-                f"⚠️ Serial decoding returned manufacture date {mfg_raw[:10]} "
-                f"(~{equipment_age_years:.0f} years ago) with expiry {expiry_raw[:10]} (past). "
-                "No install date was provided to corroborate this. "
-                "Serial number formats vary by product line — the decoded date may be wrong. "
-                "PSP should verify the actual manufacture date directly with the manufacturer "
-                "before treating this as expired. " + result.get("notes", "")
-            )
-
-    # Case 2: decoded mfg date is recent (within 5 years) but expiry is in the past
-    # → contradiction, serial decoding is almost certainly wrong
-    elif mfg_date and expiry_date and expiry_date < today:
-        equipment_age_years = (today - mfg_date).days / 365.25
-        if equipment_age_years <= 5:
-            result["estimated_expiry"] = (
-                f"Unknown - contradiction: serial decoded as {mfg_raw[:10]} "
-                f"(only {equipment_age_years:.1f} years ago) but expiry calculates to {expiry_raw[:10]} (past). "
-                "Serial format decoding is likely wrong. PSP should verify."
-            )
-            result["likely_under_warranty"] = True  # Err on side of caution
-            result["confidence"] = "low"
-            result["notes"] = (
-                f"⚠️ Contradiction: manufacture date decoded as {mfg_raw[:10]} "
-                f"({equipment_age_years:.1f} years ago) but expiry was {expiry_raw[:10]} (past). "
-                "This is mathematically inconsistent — serial decoding is likely wrong. "
-                "Flagged as likely under warranty until PSP verifies. " + result.get("notes", "")
-            )
-
-    # Case 3: no manufacture date decoded, expiry is in the past, no install date
-    # → cannot confirm expired at all
-    elif not mfg_date and expiry_date and expiry_date < today and no_install:
-        result["estimated_expiry"] = (
-            "Unknown - cannot confirm expiry without manufacture or install date"
-        )
-        result["likely_under_warranty"] = False
-        result["confidence"] = "low"
 
     # Cache the result
     _warranty_cache[key] = result

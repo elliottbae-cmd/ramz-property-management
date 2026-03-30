@@ -351,9 +351,20 @@ def _render_ai_results(result: dict, ticket_id: str):
             st.write(f"**Warranty Period:** {ai.get('warranty_period', 'N/A')}")
             st.write(f"**Coverage Type:** {ai.get('coverage_type', 'N/A')}")
             st.write(f"**Estimated Expiry:** {ai.get('estimated_expiry', 'N/A')}")
+
+            # Manufacture date — from Python decoder (deterministic)
             mfg_date = ai.get("manufacture_date_from_serial", "")
-            if mfg_date and mfg_date != "Unknown":
-                st.write(f"**📅 Manufacture Date (from serial):** {mfg_date}")
+            mfg_source = ai.get("manufacture_date_source", "")
+            mfg_conf = ai.get("serial_decode_confidence", "")
+            if mfg_date and "Unknown" not in mfg_date:
+                conf_icon = {"verified": "✅", "likely": "🔍"}.get(mfg_conf, "❓")
+                st.write(f"**📅 Manufacture Date:** {mfg_date[:10]} {conf_icon}")
+                if ai.get("serial_decode_notes"):
+                    st.caption(ai["serial_decode_notes"])
+            else:
+                st.write("**📅 Manufacture Date:** Not decoded from serial")
+                if ai.get("serial_decode_notes"):
+                    st.caption(f"ℹ️ {ai['serial_decode_notes']}")
         with d2:
             st.write(f"**Manufacturer Contact:** {ai.get('manufacturer_contact', 'N/A')}")
             st.write(f"**Claim Process:** {ai.get('claim_process', 'N/A')}")
