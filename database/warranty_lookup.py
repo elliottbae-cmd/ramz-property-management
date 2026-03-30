@@ -314,56 +314,55 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
             f"{store_context}\n"
             "== WEB SEARCH RESULTS ==\n"
             f"{search_context}\n\n"
-            "Based on these search results, please extract:\n"
-            "1. The specific warranty period for this equipment/manufacturer\n"
-            "2. What the warranty covers (parts, labor, compressor, etc.)\n"
-            "3. Whether the equipment is likely still under warranty based on the install date. "
-            "If an install date is provided, calculate whether the equipment is still covered "
-            "by adding the typical warranty period to the install date and comparing to today's date.\n"
-            "4. Manufacturer contact information for warranty claims (phone, website)\n"
-            "5. The general warranty claim process\n"
-            "6. SERIAL NUMBER DATE DECODING (CRITICAL): Many commercial equipment manufacturers encode "
-            "the manufacture date in the serial number. Search the web results for THIS SPECIFIC manufacturer's "
-            "serial number format documentation. DECODE the manufacture date from serial number '" + serial_number + "'. "
-            "This is the PRIMARY method for determining warranty status — more reliable than install date. "
-            "If you can determine the manufacture date with HIGH confidence, USE IT to calculate warranty expiry.\n"
-            "IMPORTANT RULES FOR SERIAL NUMBER DECODING (READ CAREFULLY):\n"
-            "- ONLY decode if you find the EXACT manufacturer's DOCUMENTED serial number format in the search results\n"
-            "- Do NOT guess, assume, or infer a format — if documentation is not found in the search results, return 'Unknown - serial format not documented in search results'\n"
-            "- Do NOT apply one manufacturer's format to a different manufacturer\n"
-            "- Do NOT use your training knowledge to guess the format — only use what the search results explicitly state\n"
-            "- A decoded date MUST be plausible: between year 2000 and year 2030. If outside this range, discard and return Unknown\n"
-            "- Show your decoding logic step by step in the manufacture_date_from_serial field (e.g., 'Source: [URL] states format is YYMM... decoding N30466K: N=...')\n"
-            "- If you cannot confidently decode it, set manufacture_date_from_serial to 'Unknown - serial format not documented in search results'\n"
-            "- NEVER fabricate a manufacture date — an Unknown answer is far better than a wrong date\n"
-            "7. AUTHORIZED SERVICE AGENTS: Based on the search results, find up to 3 manufacturer-authorized "
-            f"service companies or repair agents near the store location ({store_context.strip() or 'unknown'}). "
-            "Include company name, phone, and city for each.\n"
-            "8. Which source URLs contain the most relevant warranty info\n"
-            "9. Your confidence level based on how specific and reliable the search results are\n\n"
+            "STEP 1 — FIND WARRANTY TERMS:\n"
+            "Find the specific warranty period for this manufacturer and equipment type "
+            "(e.g., '1 year parts and labor', '5 year compressor', '3 year sealed system'). "
+            "Note what the warranty covers.\n\n"
+            "STEP 2 — SERIAL NUMBER DATE DECODING:\n"
+            f"Search the web results for {manufacturer}'s DOCUMENTED serial number format. "
+            f"Attempt to decode the manufacture date from serial number '{serial_number}'.\n"
+            "RULES (must follow exactly):\n"
+            "- ONLY decode if the search results contain the manufacturer's DOCUMENTED serial format\n"
+            "- Do NOT guess — if no documentation found in search results, return 'Unknown - serial format not documented in search results'\n"
+            "- Do NOT apply another manufacturer's format to this one\n"
+            "- Do NOT rely on training knowledge — only use what the search results explicitly state\n"
+            "- Decoded date must be between 2000 and 2030, otherwise discard it\n"
+            "- Show step-by-step logic: 'Source: [URL] says format is XYZ... applying to serial: ...'\n\n"
+            "STEP 3 — CALCULATE EXPIRY DATE (THIS IS MANDATORY):\n"
+            "You MUST compute estimated_expiry as a specific YYYY-MM-DD date using this logic:\n"
+            "  a) If you successfully decoded a manufacture date in Step 2: start_date = manufacture_date\n"
+            f" b) Else if an install date was provided ('{install_date}' and it is a real date): start_date = install_date\n"
+            "  c) Else: estimated_expiry = 'Unknown - no start date available'\n"
+            "If you have a start_date: estimated_expiry = start_date + warranty_period_in_years\n"
+            "SHOW YOUR ARITHMETIC in the notes field, e.g.:\n"
+            "  'Manufacture date: 2024-10-07. Warranty: 3 years. Expiry = 2024-10-07 + 3 years = 2027-10-07'\n"
+            "  'Install date: 2022-06-01. Warranty: 1 year. Expiry = 2022-06-01 + 1 year = 2023-06-01'\n"
+            f"COMPARE estimated_expiry to today ({today_str}) to determine likely_under_warranty.\n"
+            "NEVER return a past expiry date for equipment with a recent manufacture or install date — "
+            "double-check your arithmetic if the result seems wrong.\n\n"
+            "STEP 4 — AUTHORIZED SERVICE AGENTS:\n"
+            "From the search results, find up to 3 manufacturer-authorized service companies "
+            f"near the store location ({store_context.strip() or 'unknown location'}). "
+            "Include company name, phone, and city. Return [] if none found.\n\n"
+            "STEP 5 — SOURCES AND CONFIDENCE:\n"
+            "List the most relevant source URLs. "
+            "Set confidence to 'high' if manufacturer's own site provided specific warranty terms, "
+            "'medium' if third-party or general sources, 'low' if estimating.\n\n"
             "Respond in this exact JSON format:\n"
             "{\n"
             '    "likely_under_warranty": true/false,\n'
             '    "warranty_period": "e.g., 1 year parts and labor, 5 years compressor",\n'
             '    "coverage_type": "e.g., Parts and labor, Parts only",\n'
-            '    "estimated_expiry": "YYYY-MM-DD or Unknown",\n'
-            '    "manufacture_date_from_serial": "YYYY-MM or Unknown - explain how you decoded it",\n'
+            '    "estimated_expiry": "YYYY-MM-DD (show arithmetic in notes) or Unknown - reason",\n'
+            '    "manufacture_date_from_serial": "YYYY-MM-DD or YYYY-MM decoded from serial, OR Unknown - serial format not documented in search results",\n'
             '    "manufacturer_contact": "phone and/or website",\n'
             '    "claim_process": "brief steps to file a warranty claim",\n'
             '    "authorized_service_agents": [{"name": "Company Name", "phone": "phone", "city": "city, state"}],\n'
             '    "source_urls": ["url1", "url2"],\n'
             '    "confidence": "high/medium/low",\n'
-            '    "notes": "any important notes, exclusions, or caveats"\n'
+            '    "notes": "REQUIRED: Show expiry date arithmetic here. E.g.: Manufacture date 2024-10-07 + 3yr warranty = expiry 2027-10-07. Also note any exclusions or caveats."\n'
             "}\n\n"
-            "Set confidence to 'high' if the search results contain specific warranty terms "
-            "from the manufacturer. Set to 'medium' if results are from third-party sources "
-            "or are somewhat general. Set to 'low' if you're mostly estimating.\n"
-            "For authorized_service_agents, return an empty list [] if none found.\n"
-            "For manufacture_date_from_serial, return 'Unknown - could not verify format' if you cannot confidently decode it.\n"
-            "For estimated_expiry, if you cannot determine the manufacture date AND no install date was provided, "
-            "return 'Unknown - need manufacture or install date' instead of guessing.\n"
-            "For likely_under_warranty, if you cannot determine dates, return false with a note explaining why.\n"
-            "NEVER fabricate dates — accuracy is more important than completeness.\n"
+            "NEVER fabricate dates. ALWAYS show your expiry arithmetic in notes. "
             "Only respond with the JSON, no other text."
         )
     else:
@@ -388,35 +387,40 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
             f"Serial Number: {serial_number}\n"
             f"Install Date: {install_date}\n"
             f"Category: {category}\n\n"
-            "Please provide:\n"
-            "1. Typical warranty period for this type of equipment from this manufacturer\n"
-            "2. What the warranty typically covers\n"
-            "3. Whether the equipment is likely still under warranty based on install date. "
-            "If an install date is provided, calculate whether the equipment is still covered "
-            "by adding the typical warranty period to the install date and comparing to today's date.\n"
-            "4. Manufacturer's warranty claim contact information (phone, website)\n"
-            "5. General claim process steps\n"
-            "6. Any notes about common warranty exclusions\n\n"
+            "STEP 1 — WARRANTY TERMS:\n"
+            "State the typical warranty period for this manufacturer and equipment type. "
+            "Note what it covers (parts, labor, compressor, sealed system, etc.).\n\n"
+            "STEP 2 — CALCULATE EXPIRY DATE (MANDATORY — show your arithmetic):\n"
+            f" a) If a real install date was provided ('{install_date}'): start_date = install_date\n"
+            "  b) Otherwise: estimated_expiry = 'Unknown - no install or manufacture date available'\n"
+            "If you have a start_date: estimated_expiry = start_date + warranty_period_in_years\n"
+            "EXAMPLE: 'Install date 2022-06-15. Warranty: 3 years. Expiry = 2022-06-15 + 3 years = 2025-06-15'\n"
+            f"COMPARE estimated_expiry to today ({today_str}) to set likely_under_warranty.\n"
+            "Put the arithmetic in the notes field. NEVER return an expiry date without showing the math.\n\n"
+            "STEP 3 — CONTACT AND CLAIM PROCESS:\n"
+            "Manufacturer warranty claim contact (phone, website) and general claim steps.\n\n"
+            "STEP 4 — EXCLUSIONS:\n"
+            "Note common warranty exclusions for this equipment type.\n\n"
             "Respond in this exact JSON format:\n"
             "{\n"
             '    "likely_under_warranty": true/false,\n'
             '    "warranty_period": "e.g., 1 year parts and labor",\n'
             '    "coverage_type": "e.g., Parts and labor, Parts only",\n'
-            '    "estimated_expiry": "YYYY-MM-DD or Unknown",\n'
+            '    "estimated_expiry": "YYYY-MM-DD or Unknown - reason",\n'
             '    "manufacturer_contact": "phone and/or website",\n'
             '    "claim_process": "brief steps",\n'
             '    "source_urls": [],\n'
             '    "confidence": "high/medium/low",\n'
-            '    "notes": "any important notes or exclusions"\n'
+            '    "notes": "REQUIRED: Show expiry arithmetic here. E.g.: Install date 2022-06-15 + 3yr warranty = expiry 2025-06-15. Also note exclusions."\n'
             "}\n\n"
-            "Since you don't have live web search results, set confidence to 'low' or "
-            "'medium' at most -- never 'high' without real source data.\n"
+            "Since you don't have live web search results, set confidence to 'low' or 'medium' at most.\n"
+            "NEVER return an estimated_expiry without showing the start_date + warranty_period arithmetic in notes.\n"
             "Only respond with the JSON, no other text."
         )
 
     message = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=1200,
+        max_tokens=1800,
         messages=[{"role": "user", "content": prompt}],
     )
 
