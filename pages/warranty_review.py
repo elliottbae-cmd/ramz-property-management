@@ -152,7 +152,15 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
         f"{ticket.get('category', '')}  |  {urgency}"
     )
 
-    with st.expander(header_line, expanded=False):
+    # Track which tickets are expanded
+    expand_key = f"wr_expanded_{ticket_id}"
+    if expand_key not in st.session_state:
+        st.session_state[expand_key] = False
+
+    # Keep expanded if user was working on this ticket
+    is_expanded = st.session_state.get(expand_key, False)
+
+    with st.expander(header_line, expanded=is_expanded):
         # ---- Ticket summary ----
         col_info, col_urgency = st.columns([3, 1])
         with col_info:
@@ -212,6 +220,7 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
         ai_key = f"wr_ai_result_{ticket_id}"
 
         if st.button("Run AI Warranty Check", key=f"wr_ai_btn_{ticket_id}", type="secondary"):
+            st.session_state[expand_key] = True  # Keep expanded
             equipment_data = {
                 "equipment_name": equip_name,
                 "manufacturer": manufacturer or "",
@@ -227,6 +236,7 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
                 ai_result = check_warranty_status(equipment_data, install_date=install_date)
 
             st.session_state[ai_key] = ai_result
+            st.rerun()
 
         # Display AI results if available
         ai_result = st.session_state.get(ai_key)
@@ -262,7 +272,13 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
             type="primary",
             use_container_width=True,
         ):
-            _complete_review(ticket, user, client_id, decision, ai_result, install_date)
+            st.session_state[expand_key] = True  # Keep expanded during processing
+            try:
+                _complete_review(ticket, user, client_id, decision, ai_result, install_date)
+            except Exception as e:
+                st.error(f"Error completing review: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
 
 # ------------------------------------------------------------------
