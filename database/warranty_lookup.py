@@ -192,50 +192,98 @@ def _tavily_search(queries: list[str]) -> list[dict]:
 
 
 def _build_search_queries(equipment_data: dict, store_location: dict = None) -> list[str]:
-    """Build targeted search queries from equipment details."""
+    """Build targeted search queries from equipment details.
+
+    Produces up to 6 queries covering:
+      1. Warranty terms for this manufacturer/model
+      2. Serial number format / manufacture date decoding
+      3-6. Authorized service agent searches at city, state, and regional level
+    """
     manufacturer = equipment_data.get("manufacturer", "").strip()
     model = equipment_data.get("model", "").strip()
     serial_number = equipment_data.get("serial_number", "").strip()
     equipment_name = equipment_data.get("equipment_name", "").strip()
-    equipment_type = equipment_data.get("category", "").strip()
     install_date = equipment_data.get("install_date", "").strip()
 
-    # Extract year from install_date for more targeted searches
+    # Normalise manufacturer slug for URL-style searches (e.g. "hoshizakiamerica")
+    mfg_slug = manufacturer.lower().replace(" ", "").replace("-", "")
+
+    # Extract year from install_date for more targeted warranty searches
     install_year = ""
-    if install_date and install_date != "Unknown":
+    if install_date and "Unknown" not in install_date:
         install_year = install_date[:4]  # YYYY from YYYY-MM-DD
 
     queries = []
 
-    # Query 1: specific warranty terms
+    # --- Query 1: Warranty terms ---
     if manufacturer and model:
-        q = f"{manufacturer} {model} warranty terms"
+        q = f"{manufacturer} {model} warranty terms coverage"
         if install_year:
             q += f" {install_year}"
         queries.append(q)
     elif manufacturer:
-        queries.append(f"{manufacturer} {equipment_name} warranty terms")
+        queries.append(f"{manufacturer} {equipment_name} commercial warranty terms")
     else:
-        queries.append(f"{equipment_name} commercial warranty terms")
+        queries.append(f"{equipment_name} commercial kitchen equipment warranty terms")
 
-    # Query 2: serial number format / manufacture date decoding
+    # --- Query 2: Serial number format / manufacture date ---
     if manufacturer and serial_number:
-        queries.append(f"{manufacturer} serial number format decode manufacture date")
+        queries.append(
+            f"{manufacturer} serial number format decode manufacture date how to read"
+        )
 
-    # Query 3: authorized service agents near store location
+    # --- Queries 3-6: Authorized service agents (city → state → regional) ---
     if manufacturer and store_location:
-        city = store_location.get("city", "")
-        state = store_location.get("state", "")
+        city = store_location.get("city", "").strip()
+        state = store_location.get("state", "").strip()
+        state_name = _state_abbr_to_name(state)  # e.g. "AR" → "Arkansas"
+
         if city and state:
-            queries.append(f"{manufacturer} locate service representative authorized repair {city} {state}")
-            # Some manufacturers use specific URL patterns
-            queries.append(f"site:{manufacturer.lower().replace(' ', '')}america.com OR site:{manufacturer.lower().replace(' ', '')}.com service rep locator {state}")
+            # City-level: most specific
+            queries.append(
+                f"{manufacturer} authorized service dealer repair technician {city} {state}"
+            )
+            # State-level: broader net
+            queries.append(
+                f"{manufacturer} authorized service representative {state_name or state} commercial refrigeration repair"
+            )
 
-    # Fallback queries if we don't have enough
+        if state:
+            # Manufacturer's own service locator page
+            queries.append(
+                f"site:{mfg_slug}america.com OR site:{mfg_slug}.com "
+                f"authorized service dealer locator {state}"
+            )
+            # Generic directory search
+            queries.append(
+                f"{manufacturer} service center dealer locator {state_name or state} find technician"
+            )
+
+    # Fallback: warranty claim info if we still have few queries
     if len(queries) < 2 and manufacturer:
-        queries.append(f"{manufacturer} warranty registration lookup claim")
+        queries.append(f"{manufacturer} warranty claim process contact phone")
 
-    return queries[:5]  # cap at 5 queries
+    return queries[:6]  # cap at 6 queries (Tavily will run each)
+
+
+def _state_abbr_to_name(abbr: str) -> str:
+    """Convert a US state abbreviation to its full name for broader searches."""
+    _map = {
+        "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+        "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+        "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
+        "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+        "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+        "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+        "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+        "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+        "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+        "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+        "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
+        "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+        "WI": "Wisconsin", "WY": "Wyoming", "DC": "Washington DC",
+    }
+    return _map.get(abbr.upper(), "")
 
 
 # ------------------------------------------------------------------
@@ -343,7 +391,10 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
             "STEP 4 — AUTHORIZED SERVICE AGENTS:\n"
             "From the search results, find up to 3 manufacturer-authorized service companies "
             f"near the store location ({store_context.strip() or 'unknown location'}). "
-            "Include company name, phone, and city. Return [] if none found.\n\n"
+            "Search broadly — include agents in the same city, nearby cities, or anywhere in the same state. "
+            "A technician 1-2 hours away is still useful. "
+            "Include company name, phone number, and city/state for each. "
+            "Return [] only if the search results contain absolutely no service agent information.\n\n"
             "STEP 5 — SOURCES AND CONFIDENCE:\n"
             "List the most relevant source URLs. "
             "Set confidence to 'high' if manufacturer's own site provided specific warranty terms, "
