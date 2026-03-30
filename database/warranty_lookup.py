@@ -326,15 +326,16 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
             "the manufacture date in the serial number. Search the web results for THIS SPECIFIC manufacturer's "
             "serial number format documentation. DECODE the manufacture date from serial number '" + serial_number + "'. "
             "This is the PRIMARY method for determining warranty status — more reliable than install date. "
-            "If you can determine the manufacture date, USE IT to calculate warranty expiry instead of install date.\n"
-            "IMPORTANT RULES FOR SERIAL NUMBER DECODING:\n"
-            "- ONLY decode if you find the manufacturer's DOCUMENTED serial number format in the search results\n"
-            "- Do NOT guess or assume a format — if you can't find documentation, say 'Unknown - format not found'\n"
-            "- Different manufacturers use completely different formats — do not apply one manufacturer's format to another\n"
-            "- If your decoded date seems inconsistent (e.g., future date, very old date), flag it as uncertain\n"
-            "- Show your decoding logic step by step in the manufacture_date_from_serial field\n"
-            "- If you cannot confidently decode it, set manufacture_date_from_serial to 'Unknown - could not verify format' "
-            "and set likely_under_warranty based on install date if available, or 'Unknown' if not\n"
+            "If you can determine the manufacture date with HIGH confidence, USE IT to calculate warranty expiry.\n"
+            "IMPORTANT RULES FOR SERIAL NUMBER DECODING (READ CAREFULLY):\n"
+            "- ONLY decode if you find the EXACT manufacturer's DOCUMENTED serial number format in the search results\n"
+            "- Do NOT guess, assume, or infer a format — if documentation is not found in the search results, return 'Unknown - serial format not documented in search results'\n"
+            "- Do NOT apply one manufacturer's format to a different manufacturer\n"
+            "- Do NOT use your training knowledge to guess the format — only use what the search results explicitly state\n"
+            "- A decoded date MUST be plausible: between year 2000 and year 2030. If outside this range, discard and return Unknown\n"
+            "- Show your decoding logic step by step in the manufacture_date_from_serial field (e.g., 'Source: [URL] states format is YYMM... decoding N30466K: N=...')\n"
+            "- If you cannot confidently decode it, set manufacture_date_from_serial to 'Unknown - serial format not documented in search results'\n"
+            "- NEVER fabricate a manufacture date — an Unknown answer is far better than a wrong date\n"
             "7. AUTHORIZED SERVICE AGENTS: Based on the search results, find up to 3 manufacturer-authorized "
             f"service companies or repair agents near the store location ({store_context.strip() or 'unknown'}). "
             "Include company name, phone, and city for each.\n"
@@ -436,6 +437,8 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
         "warranty_period": str(parsed.get("warranty_period", parsed.get("typical_warranty_period", "Unknown"))),
         "coverage_type": str(parsed.get("coverage_type", "Unknown")),
         "estimated_expiry": str(parsed.get("estimated_expiry", "Unknown")),
+        "manufacture_date_from_serial": str(parsed.get("manufacture_date_from_serial", "Unknown - not decoded")),
+        "authorized_service_agents": list(parsed.get("authorized_service_agents", [])),
         "manufacturer_contact": str(parsed.get("manufacturer_contact", "Unknown")),
         "claim_process": str(parsed.get("claim_process", "Unknown")),
         "source_urls": list(parsed.get("source_urls", [])),
@@ -445,6 +448,42 @@ def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> 
         # Metadata
         "web_search_used": tavily_available,
     }
+
+    # Post-processing validation: if manufacture_date_from_serial was decoded,
+    # sanity-check it against estimated_expiry. If expiry is in the past but
+    # manufacture date is recent (within 2 years), the expiry is likely wrong.
+    mfg_raw = result.get("manufacture_date_from_serial", "")
+    expiry_raw = result.get("estimated_expiry", "Unknown")
+    if mfg_raw and "Unknown" not in mfg_raw and expiry_raw and "Unknown" not in expiry_raw:
+        try:
+            # Parse manufacture date (YYYY-MM or YYYY-MM-DD)
+            mfg_parts = mfg_raw[:7]  # Take YYYY-MM portion
+            mfg_date = datetime.strptime(mfg_parts, "%Y-%m").date()
+            expiry_date = datetime.strptime(expiry_raw[:10], "%Y-%m-%d").date()
+            # If manufacture date is within last 3 years but expiry is in the past, flag it
+            if mfg_date >= date(date.today().year - 3, 1, 1) and expiry_date < date.today():
+                result["estimated_expiry"] = "Unknown - expiry date conflict (decoded manufacture date is recent but expiry appears past — PSP should verify)"
+                result["likely_under_warranty"] = True  # Err on side of caution
+                result["confidence"] = "low"
+                result["notes"] = (
+                    f"WARNING: Manufacture date decoded as {mfg_raw} (recent) but calculated expiry was "
+                    f"{expiry_raw} (past). This is a contradiction — the serial number decoding may be wrong. "
+                    "PSP should verify manufacture date directly with manufacturer. " + result.get("notes", "")
+                )
+        except (ValueError, TypeError):
+            pass  # Can't parse dates — leave as-is
+
+    # Also validate: if no manufacture date decoded but expiry is in the past,
+    # and no install date was provided, flag as uncertain rather than confident
+    if "Unknown" in mfg_raw and expiry_raw and "Unknown" not in expiry_raw and "Unknown" not in install_date:
+        try:
+            expiry_date = datetime.strptime(expiry_raw[:10], "%Y-%m-%d").date()
+            if expiry_date < date.today() and install_date == "Unknown - decode from serial number":
+                result["estimated_expiry"] = "Unknown - cannot verify without manufacture date or install date"
+                result["likely_under_warranty"] = False
+                result["confidence"] = "low"
+        except (ValueError, TypeError):
+            pass
 
     # Cache the result
     _warranty_cache[key] = result
