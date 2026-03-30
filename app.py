@@ -62,6 +62,7 @@ if tier == "psp":
     # ---- PSP Navigation ----
     if can_access_psp_admin():
         nav_items["PSP Admin"] = "psp_admin"
+        nav_items["📦 Closeout Importer"] = "closeout_import"
 
         # Warranty Review with pending indicator (uses cached ticket query)
         try:
@@ -183,6 +184,10 @@ if selected:
     elif page_key == "warranty_review":
         from pages import warranty_review
         warranty_review.render()
+
+    elif page_key == "closeout_import":
+        from pages import closeout_import
+        closeout_import.render()
 
     elif page_key == "knowledge_base_admin":
         from pages import knowledge_base_admin
