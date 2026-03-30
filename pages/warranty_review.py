@@ -232,8 +232,20 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
             if equipment_id:
                 equipment_data["equipment_id"] = equipment_id
 
-            with st.spinner("Running AI warranty research..."):
-                ai_result = check_warranty_status(equipment_data, install_date=install_date)
+            # Get store location for service agent search
+            store_location = None
+            store_id = ticket.get("store_id")
+            if store_id:
+                from database.stores import get_store
+                store_info = get_store(store_id)
+                if store_info:
+                    store_location = {
+                        "city": store_info.get("city", ""),
+                        "state": store_info.get("state", ""),
+                    }
+
+            with st.spinner("Running AI warranty research (checking warranty, serial number date, and nearby service agents)..."):
+                ai_result = check_warranty_status(equipment_data, install_date=install_date, store_location=store_location)
 
             st.session_state[ai_key] = ai_result
             st.rerun()
@@ -333,11 +345,25 @@ def _render_ai_results(result: dict, ticket_id: str):
             st.write(f"**Warranty Period:** {ai.get('warranty_period', 'N/A')}")
             st.write(f"**Coverage Type:** {ai.get('coverage_type', 'N/A')}")
             st.write(f"**Estimated Expiry:** {ai.get('estimated_expiry', 'N/A')}")
+            mfg_date = ai.get("manufacture_date_from_serial", "")
+            if mfg_date and mfg_date != "Unknown":
+                st.write(f"**📅 Manufacture Date (from serial):** {mfg_date}")
         with d2:
             st.write(f"**Manufacturer Contact:** {ai.get('manufacturer_contact', 'N/A')}")
             st.write(f"**Claim Process:** {ai.get('claim_process', 'N/A')}")
             if ai.get("notes"):
                 st.write(f"**Notes:** {ai['notes']}")
+
+        # Authorized Service Agents
+        agents = ai.get("authorized_service_agents", [])
+        if agents:
+            st.markdown("---")
+            st.markdown("**🔧 Authorized Service Agents Nearby:**")
+            for i, agent in enumerate(agents, 1):
+                name = agent.get("name", "Unknown")
+                phone = agent.get("phone", "N/A")
+                city = agent.get("city", "N/A")
+                st.markdown(f"{i}. **{name}** — {phone} ({city})")
 
         if ai.get("web_search_used"):
             st.caption("Results based on live web search + AI analysis")

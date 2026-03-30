@@ -41,7 +41,7 @@ def _cache_key(equipment_data: dict) -> str:
 # Public API
 # ------------------------------------------------------------------
 
-def check_warranty_status(equipment_data: dict, install_date=None) -> dict:
+def check_warranty_status(equipment_data: dict, install_date=None, store_location: dict = None) -> dict:
     """Check warranty status for equipment.
 
     Parameters
@@ -50,6 +50,9 @@ def check_warranty_status(equipment_data: dict, install_date=None) -> dict:
         Should include: manufacturer, model, serial_number, install_date,
         equipment_name, category.  An ``equipment_id`` key triggers the
         database lookup; without it only the AI path runs.
+    store_location : dict, optional
+        Store city/state for finding authorized service agents.
+        e.g. {"city": "Bentonville", "state": "AR"}
 
     Returns
     -------
@@ -106,7 +109,7 @@ def check_warranty_status(equipment_data: dict, install_date=None) -> dict:
             equipment_data["install_date"] = str(install_date)
 
     try:
-        ai_result = _ai_warranty_research(equipment_data)
+        ai_result = _ai_warranty_research(equipment_data, store_location=store_location)
         result["ai_lookup_performed"] = True
         result["ai_result"] = ai_result
 
@@ -188,17 +191,14 @@ def _tavily_search(queries: list[str]) -> list[dict]:
     return all_results
 
 
-def _build_search_queries(equipment_data: dict) -> list[str]:
-    """Build 2-3 targeted search queries from equipment details."""
+def _build_search_queries(equipment_data: dict, store_location: dict = None) -> list[str]:
+    """Build targeted search queries from equipment details."""
     manufacturer = equipment_data.get("manufacturer", "").strip()
     model = equipment_data.get("model", "").strip()
+    serial_number = equipment_data.get("serial_number", "").strip()
     equipment_name = equipment_data.get("equipment_name", "").strip()
     equipment_type = equipment_data.get("category", "").strip()
     install_date = equipment_data.get("install_date", "").strip()
-
-    # Use the best identifier available
-    equip_label = manufacturer or equipment_name or "commercial equipment"
-    model_label = model or equipment_name or ""
 
     # Extract year from install_date for more targeted searches
     install_year = ""
@@ -218,23 +218,29 @@ def _build_search_queries(equipment_data: dict) -> list[str]:
     else:
         queries.append(f"{equipment_name} commercial warranty terms")
 
-    # Query 2: warranty period and coverage
-    if manufacturer:
-        type_label = equipment_type or equipment_name or "equipment"
-        queries.append(f"{manufacturer} {type_label} warranty period coverage")
+    # Query 2: serial number format / manufacture date decoding
+    if manufacturer and serial_number:
+        queries.append(f"{manufacturer} serial number format decode manufacture date")
 
-    # Query 3: warranty registration / claim lookup
-    if manufacturer:
+    # Query 3: authorized service agents near store location
+    if manufacturer and store_location:
+        city = store_location.get("city", "")
+        state = store_location.get("state", "")
+        if city and state:
+            queries.append(f"{manufacturer} authorized service agent repair near {city} {state}")
+
+    # Fallback queries if we don't have enough
+    if len(queries) < 2 and manufacturer:
         queries.append(f"{manufacturer} warranty registration lookup claim")
 
-    return queries[:3]  # cap at 3 queries
+    return queries[:4]  # cap at 4 queries
 
 
 # ------------------------------------------------------------------
 # Core AI research (Tavily + Claude)
 # ------------------------------------------------------------------
 
-def _ai_warranty_research(equipment_data: dict) -> dict:
+def _ai_warranty_research(equipment_data: dict, store_location: dict = None) -> dict:
     """Use Tavily web search + Claude API to research warranty information.
 
     Flow:
@@ -247,7 +253,8 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
 
     Returns a dict with keys: likely_under_warranty, confidence,
     warranty_period, coverage_type, estimated_expiry,
-    manufacturer_contact, claim_process, source_urls, notes.
+    manufacturer_contact, claim_process, manufacture_date_from_serial,
+    authorized_service_agents, source_urls, notes.
     """
     # Check cache first
     key = _cache_key(equipment_data)
@@ -259,7 +266,7 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
     client = anthropic.Anthropic(api_key=_get_secret("ANTHROPIC_API_KEY"))
 
     # --- Tavily search ---
-    search_queries = _build_search_queries(equipment_data)
+    search_queries = _build_search_queries(equipment_data, store_location=store_location)
     search_results = _tavily_search(search_queries)
 
     tavily_available = bool(search_results)
@@ -274,6 +281,14 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
     category = equipment_data.get("category", "Unknown")
 
     today_str = date.today().isoformat()
+
+    # Build store location context
+    store_context = ""
+    if store_location:
+        city = store_location.get("city", "")
+        state = store_location.get("state", "")
+        if city and state:
+            store_context = f"Store Location: {city}, {state}\n"
 
     if tavily_available:
         # Format search results for Claude
@@ -293,7 +308,8 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
             f"Model: {model}\n"
             f"Serial Number: {serial_number}\n"
             f"Install Date: {install_date}\n"
-            f"Category: {category}\n\n"
+            f"Category: {category}\n"
+            f"{store_context}\n"
             "== WEB SEARCH RESULTS ==\n"
             f"{search_context}\n\n"
             "Based on these search results, please extract:\n"
@@ -304,16 +320,25 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
             "by adding the typical warranty period to the install date and comparing to today's date.\n"
             "4. Manufacturer contact information for warranty claims (phone, website)\n"
             "5. The general warranty claim process\n"
-            "6. Which source URLs contain the most relevant warranty info\n"
-            "7. Your confidence level based on how specific and reliable the search results are\n\n"
+            "6. SERIAL NUMBER DATE DECODING: Many manufacturers encode the manufacture date "
+            "in the serial number. Look at the search results for how this manufacturer formats "
+            f"serial numbers. Try to decode the manufacture date from serial number '{serial_number}'. "
+            "If you can determine the manufacture date, use it to refine the warranty expiry calculation.\n"
+            "7. AUTHORIZED SERVICE AGENTS: Based on the search results, find up to 3 manufacturer-authorized "
+            f"service companies or repair agents near the store location ({store_context.strip() or 'unknown'}). "
+            "Include company name, phone, and city for each.\n"
+            "8. Which source URLs contain the most relevant warranty info\n"
+            "9. Your confidence level based on how specific and reliable the search results are\n\n"
             "Respond in this exact JSON format:\n"
             "{\n"
             '    "likely_under_warranty": true/false,\n'
             '    "warranty_period": "e.g., 1 year parts and labor, 5 years compressor",\n'
             '    "coverage_type": "e.g., Parts and labor, Parts only",\n'
             '    "estimated_expiry": "YYYY-MM-DD or Unknown",\n'
+            '    "manufacture_date_from_serial": "YYYY-MM or Unknown - explain how you decoded it",\n'
             '    "manufacturer_contact": "phone and/or website",\n'
             '    "claim_process": "brief steps to file a warranty claim",\n'
+            '    "authorized_service_agents": [{"name": "Company Name", "phone": "phone", "city": "city, state"}],\n'
             '    "source_urls": ["url1", "url2"],\n'
             '    "confidence": "high/medium/low",\n'
             '    "notes": "any important notes, exclusions, or caveats"\n'
@@ -321,6 +346,8 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
             "Set confidence to 'high' if the search results contain specific warranty terms "
             "from the manufacturer. Set to 'medium' if results are from third-party sources "
             "or are somewhat general. Set to 'low' if you're mostly estimating.\n"
+            "For authorized_service_agents, return an empty list [] if none found.\n"
+            "For manufacture_date_from_serial, return 'Unknown' if you cannot decode it.\n"
             "Only respond with the JSON, no other text."
         )
     else:
@@ -373,7 +400,7 @@ def _ai_warranty_research(equipment_data: dict) -> dict:
 
     message = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=800,
+        max_tokens=1200,
         messages=[{"role": "user", "content": prompt}],
     )
 
