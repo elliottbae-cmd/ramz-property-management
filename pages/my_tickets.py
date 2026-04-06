@@ -74,7 +74,7 @@ def render():
 def _render_ticket_detail_view(ticket_id: str, user: dict):
     """Render the detail view for a single ticket."""
     if st.button("< Back to My Tickets"):
-        del st.session_state["selected_ticket_id"]
+        st.session_state.pop("selected_ticket_id", None)
         st.rerun()
 
     ticket = get_ticket(ticket_id)

@@ -76,7 +76,7 @@ def render():
 def _render_approval_detail(ticket_id: str, user: dict):
     """Render the approval detail view for a ticket."""
     if st.button("< Back to Queue"):
-        del st.session_state["approval_ticket_id"]
+        st.session_state.pop("approval_ticket_id", None)
         st.session_state.pop("approval_record_id", None)
         st.rerun()
 
@@ -120,7 +120,7 @@ def _render_approval_detail(ticket_id: str, user: dict):
                                {"approval_id": approval_id})
 
                 st.success("Approved!")
-                del st.session_state["approval_ticket_id"]
+                st.session_state.pop("approval_ticket_id", None)
                 st.session_state.pop("approval_record_id", None)
                 st.rerun()
             else:
@@ -137,7 +137,7 @@ def _render_approval_detail(ticket_id: str, user: dict):
                                {"approval_id": approval_id, "notes": notes})
 
                 st.success("Rejected.")
-                del st.session_state["approval_ticket_id"]
+                st.session_state.pop("approval_ticket_id", None)
                 st.session_state.pop("approval_record_id", None)
                 st.rerun()
             else:

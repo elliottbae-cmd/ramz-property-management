@@ -2,7 +2,7 @@
 
 import streamlit as st
 from supabase import create_client, Client
-from config.settings import SUPABASE_URL, SUPABASE_KEY
+from config.settings import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY
 
 
 # ------------------------------------------------------------------
@@ -29,6 +29,18 @@ def get_client() -> Client:
     if token:
         sb.postgrest.auth(token)
     return sb
+
+
+@st.cache_resource
+def get_admin_client() -> Client:
+    """Supabase client using the service_role key — bypasses RLS.
+
+    Use ONLY for admin operations (bulk user creation, etc.).
+    Never expose this client to end-user requests.
+    """
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise RuntimeError("SUPABASE_SERVICE_KEY not configured in secrets.")
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 # Alias kept for backward compatibility

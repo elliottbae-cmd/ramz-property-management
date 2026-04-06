@@ -190,7 +190,7 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
 
         equip_name = equipment_info.get("name", "N/A")
         manufacturer = equipment_info.get("manufacturer", "")
-        model = equipment_info.get("brand", "") or equipment_info.get("model", "")
+        model = equipment_info.get("model", "")
         serial_number = equipment_info.get("serial_number", "")
 
         st.markdown("**Equipment Information**")

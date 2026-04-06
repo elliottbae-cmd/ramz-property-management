@@ -4,8 +4,10 @@ Client management, user management across all tenants, and system-wide controls.
 Only accessible to PSP-tier users.
 """
 
+import io
 import streamlit as st
-from database.supabase_client import get_current_user, get_client, sign_up
+import pandas as pd
+from database.supabase_client import get_current_user, get_client, get_admin_client, sign_up
 from database.tenant import get_all_clients
 from database.users import get_users_for_client, create_user_profile, update_user
 from database.stores import get_stores, create_store
@@ -29,8 +31,8 @@ def render():
 
     require_permission(can_access_psp_admin, "PSP admin access required.")
 
-    tab_clients, tab_users, tab_create_user, tab_audit = st.tabs(
-        ["Clients", "Users", "Create User", "Audit Log"]
+    tab_clients, tab_users, tab_create_user, tab_bulk, tab_audit = st.tabs(
+        ["Clients", "Users", "Create User", "Bulk Import", "Audit Log"]
     )
 
     with tab_clients:
@@ -41,6 +43,9 @@ def render():
 
     with tab_create_user:
         _render_create_user(user)
+
+    with tab_bulk:
+        _render_bulk_import(user)
 
     with tab_audit:
         _render_audit_log(user)
@@ -102,11 +107,11 @@ def _render_client_management(user: dict):
                                 details={"name": client_name},
                             )
 
-                            # Grant PSP user access to this client
-                            sb.table("psp_client_access").insert({
+                            # Grant PSP user access to this client (upsert to avoid duplicates)
+                            sb.table("psp_client_access").upsert({
                                 "psp_user_id": user["id"],
                                 "client_id": new_client["id"],
-                            }).execute()
+                            }, on_conflict="psp_user_id,client_id").execute()
 
                             st.success(f"Client '{client_name}' created!")
                             st.rerun()
@@ -426,14 +431,14 @@ def _render_create_user(admin_user: dict):
                                 "store_id": store_id,
                             }).execute()
 
-                        # Grant PSP client access if PSP user
+                        # Grant PSP client access if PSP user (upsert to avoid duplicates)
                         if user_tier == "psp":
                             sb = get_client()
                             for c in clients:
-                                sb.table("psp_client_access").insert({
+                                sb.table("psp_client_access").upsert({
                                     "psp_user_id": result.user.id,
                                     "client_id": c["id"],
-                                }).execute()
+                                }, on_conflict="psp_user_id,client_id").execute()
 
                         st.success(f"User '{full_name}' created successfully!")
                         st.rerun()
@@ -441,6 +446,184 @@ def _render_create_user(admin_user: dict):
                         st.error("Failed to create user account.")
                 except Exception as e:
                     st.error(f"Error creating user: {str(e)}")
+
+
+# ------------------------------------------------------------------
+# Bulk User Import
+# ------------------------------------------------------------------
+
+def _render_bulk_import(admin_user: dict):
+    st.markdown("### Bulk User Import")
+    st.caption("Upload a CSV to create multiple GM/DM users at once.")
+
+    clients = get_all_clients()
+    if not clients:
+        st.warning("No clients found. Create a client first.")
+        return
+
+    # Client selector
+    client_options = {c["id"]: c["name"] for c in clients}
+    client_id = st.selectbox(
+        "Client *",
+        list(client_options.keys()),
+        format_func=lambda x: client_options[x],
+        key="bulk_client",
+    )
+
+    default_password = st.text_input(
+        "Default Password for all users *",
+        type="password",
+        help="All imported users will get this password. They can change it after first login.",
+        key="bulk_password",
+    )
+
+    st.markdown("---")
+    st.markdown("**CSV Format** — download the template below, fill it in, then upload.")
+    st.caption("Required columns: `full_name`, `email`, `store_number`, `role`  (role = `gm` or `dm`)")
+
+    # Template download
+    template_csv = "full_name,email,store_number,role\nStore 1001 GM,store1001@example.com,1001,gm\nStore 1002 DM,store1002@example.com,1002,dm\n"
+    st.download_button(
+        "Download CSV Template",
+        data=template_csv,
+        file_name="user_import_template.csv",
+        mime="text/csv",
+    )
+
+    uploaded = st.file_uploader("Upload CSV", type="csv", key="bulk_csv")
+    if not uploaded:
+        return
+
+    try:
+        df = pd.read_csv(uploaded)
+        df.columns = [c.strip().lower() for c in df.columns]
+    except Exception as e:
+        st.error(f"Could not read CSV: {e}")
+        return
+
+    required_cols = {"full_name", "email", "store_number", "role"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        st.error(f"CSV is missing columns: {', '.join(missing)}")
+        return
+
+    df = df.dropna(subset=["email", "store_number"])
+    df["store_number"] = df["store_number"].astype(str).str.strip()
+    df["role"] = df["role"].str.strip().str.lower()
+    df["email"] = df["email"].str.strip().str.lower()
+
+    # Load stores for this client to map store_number → store_id
+    stores = get_stores(client_id)
+    store_map = {s["store_number"]: s["id"] for s in stores}
+
+    # Validate rows
+    df["_store_id"] = df["store_number"].map(store_map)
+    df["_valid_role"] = df["role"].isin(["gm", "dm"])
+    df["_store_found"] = df["_store_id"].notna()
+
+    invalid = df[~(df["_valid_role"] & df["_store_found"])]
+    valid = df[df["_valid_role"] & df["_store_found"]]
+
+    st.markdown(f"**Preview:** {len(valid)} valid rows, {len(invalid)} with issues")
+
+    if not invalid.empty:
+        with st.expander(f"⚠️ {len(invalid)} rows with issues (will be skipped)"):
+            for _, row in invalid.iterrows():
+                issues = []
+                if not row["_valid_role"]:
+                    issues.append(f"unknown role '{row['role']}'")
+                if not row["_store_found"]:
+                    issues.append(f"store number '{row['store_number']}' not found")
+                st.markdown(f"- **{row['email']}** — {', '.join(issues)}")
+
+    if valid.empty:
+        st.warning("No valid rows to import.")
+        return
+
+    with st.expander("Preview valid rows"):
+        st.dataframe(
+            valid[["full_name", "email", "store_number", "role"]].reset_index(drop=True),
+            use_container_width=True,
+        )
+
+    if not default_password or len(default_password) < 6:
+        st.warning("Enter a default password (min 6 characters) before importing.")
+        return
+
+    if st.button(f"Import {len(valid)} Users", type="primary", use_container_width=True):
+        try:
+            admin_sb = get_admin_client()
+        except RuntimeError as e:
+            st.error(f"Admin client not available: {e}. Add SUPABASE_SERVICE_KEY to your Streamlit secrets.")
+            return
+
+        results = {"created": [], "skipped": [], "errors": []}
+
+        progress = st.progress(0)
+        total = len(valid)
+
+        for i, (_, row) in enumerate(valid.iterrows()):
+            email = row["email"]
+            full_name = str(row["full_name"]).strip()
+            store_id = row["_store_id"]
+            role = row["role"]
+
+            try:
+                # Create auth user via admin API (no email confirmation, no session swap)
+                auth_result = admin_sb.auth.admin.create_user({
+                    "email": email,
+                    "password": default_password,
+                    "email_confirm": True,
+                })
+
+                if not auth_result.user:
+                    results["errors"].append(f"{email}: auth creation returned no user")
+                    continue
+
+                user_id = auth_result.user.id
+
+                # Insert user profile
+                profile = {
+                    "id": user_id,
+                    "email": email,
+                    "full_name": full_name,
+                    "user_tier": "client",
+                    "client_id": client_id,
+                    "client_role": role,
+                    "store_id": store_id,
+                }
+                admin_sb.table("users").insert(profile).execute()
+
+                # Also insert into user_stores junction table
+                admin_sb.table("user_stores").insert({
+                    "user_id": user_id,
+                    "store_id": store_id,
+                }).execute()
+
+                results["created"].append(email)
+
+            except Exception as e:
+                err_str = str(e)
+                if "already registered" in err_str or "already been registered" in err_str:
+                    results["skipped"].append(f"{email}: already exists")
+                else:
+                    results["errors"].append(f"{email}: {err_str}")
+
+            progress.progress((i + 1) / total)
+
+        # Summary
+        st.markdown("---")
+        st.markdown("### Import Results")
+        if results["created"]:
+            st.success(f"✅ {len(results['created'])} users created successfully")
+        if results["skipped"]:
+            st.warning(f"⏭️ {len(results['skipped'])} skipped (already exist):")
+            for s in results["skipped"]:
+                st.caption(f"  • {s}")
+        if results["errors"]:
+            st.error(f"❌ {len(results['errors'])} errors:")
+            for e in results["errors"]:
+                st.caption(f"  • {e}")
 
 
 # ------------------------------------------------------------------

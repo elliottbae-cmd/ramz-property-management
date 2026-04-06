@@ -12,9 +12,9 @@ from database.stores import get_stores
 from database.equipment import (
     get_equipment_for_client,
     get_equipment_with_details,
+    get_active_warranties_bulk,
     get_repair_history,
     get_warranties,
-    check_active_warranty,
     create_equipment,
     update_equipment,
 )
@@ -42,52 +42,39 @@ EQUIPMENT_CATEGORIES = [
 ]
 
 
-@st.cache_data(ttl=60)
-def _batch_repair_costs(equipment_ids: list[str]) -> dict[str, float]:
-    """Fetch total actual_cost per equipment ID in a single query."""
+@st.cache_data(ttl=120)
+def _batch_ticket_stats(equipment_ids: tuple | list) -> tuple[dict[str, int], dict[str, float]]:
+    """Fetch open ticket counts AND total repair costs in a single query.
+
+    Returns (open_counts, repair_costs) — both keyed by equipment_id.
+    Replaces two separate Supabase round trips with one.
+    """
     if not equipment_ids:
-        return {}
+        return {}, {}
     try:
         sb = get_client()
         result = (
             sb.table("tickets")
-            .select("equipment_id, actual_cost")
+            .select("equipment_id, actual_cost, status")
             .in_("equipment_id", equipment_ids)
             .execute()
         )
-        costs: dict[str, float] = {}
+        open_counts: dict[str, int] = {}
+        repair_costs: dict[str, float] = {}
+        closed_statuses = {"completed", "closed", "rejected"}
         for row in (result.data or []):
             eid = row.get("equipment_id")
+            if not eid:
+                continue
+            status = row.get("status") or ""
+            if status not in closed_statuses:
+                open_counts[eid] = open_counts.get(eid, 0) + 1
             cost = row.get("actual_cost")
-            if eid and cost:
-                costs[eid] = costs.get(eid, 0) + float(cost)
-        return costs
+            if cost:
+                repair_costs[eid] = repair_costs.get(eid, 0) + float(cost)
+        return open_counts, repair_costs
     except Exception:
-        return {}
-
-
-@st.cache_data(ttl=60)
-def _batch_open_ticket_counts(equipment_ids: list[str]) -> dict[str, int]:
-    """Fetch open ticket counts for multiple equipment IDs in a single query."""
-    if not equipment_ids:
-        return {}
-    try:
-        sb = get_client()
-        result = (
-            sb.table("tickets")
-            .select("equipment_id")
-            .in_("equipment_id", equipment_ids)
-            .not_.in_("status", ["completed", "closed", "rejected"])
-            .execute()
-        )
-        counts: dict[str, int] = {}
-        for row in (result.data or []):
-            eid = row.get("equipment_id")
-            if eid:
-                counts[eid] = counts.get(eid, 0) + 1
-        return counts
-    except Exception:
-        return {}
+        return {}, {}
 
 
 def render():
@@ -112,14 +99,23 @@ def render():
         return
 
     # ------------------------------------------------------------------
+    # Search bar — prominent, full width at top
+    # ------------------------------------------------------------------
+    search_text = st.text_input(
+        "🔍 Search Equipment",
+        placeholder="Search by name, serial number, manufacturer, model, or category...",
+        key="eq_search",
+    )
+
+    # ------------------------------------------------------------------
     # Filters row
     # ------------------------------------------------------------------
-    col_store, col_brand, col_cat, col_search = st.columns(4)
+    col_store, col_brand, col_cat, col_warranty = st.columns(4)
 
     with col_store:
         store_options = {"all": "All Stores"}
-        for s in stores:
-            store_options[s["id"]] = f"{s['store_number']} - {s['name']}"
+        for s in sorted(stores, key=lambda x: x.get("store_number", "")):
+            store_options[s["id"]] = f"{s['store_number']} – {s['name']}"
         selected_store = st.selectbox(
             "Store",
             options=list(store_options.keys()),
@@ -136,11 +132,11 @@ def render():
         cat_options = ["All Categories"] + EQUIPMENT_CATEGORIES
         selected_category = st.selectbox("Category", cat_options, key="eq_cat_filter")
 
-    with col_search:
-        search_text = st.text_input(
-            "Search",
-            placeholder="Name, serial #, manufacturer...",
-            key="eq_search",
+    with col_warranty:
+        warranty_filter = st.selectbox(
+            "Warranty",
+            ["All", "Active Warranty", "No Warranty"],
+            key="eq_warranty_filter",
         )
 
     # ------------------------------------------------------------------
@@ -148,7 +144,6 @@ def render():
     # ------------------------------------------------------------------
     if selected_store != "all":
         all_equipment = get_equipment_with_details(selected_store)
-        # Attach store info to each item
         store_obj = next((s for s in stores if s["id"] == selected_store), {})
         for item in all_equipment:
             item["stores"] = {
@@ -159,15 +154,18 @@ def render():
             }
     else:
         all_equipment = get_equipment_for_client(client_id)
-        # Enrich with warranty info (cached per-item)
-        for item in all_equipment:
-            item["active_warranty"] = check_active_warranty(item["id"])
 
-        # Batch-fetch open ticket counts instead of N+1 queries
-        equipment_ids = [item["id"] for item in all_equipment]
-        open_counts = _batch_open_ticket_counts(equipment_ids)
-        for item in all_equipment:
-            item["open_ticket_count"] = open_counts.get(item["id"], 0)
+    # Bulk-fetch ticket stats (open counts + repair costs) in ONE query
+    # and active warranties in ONE query — replaces N+2 round trips with 2.
+    # Use tuple so @st.cache_data hashing is fast and deterministic.
+    equipment_ids = tuple(item["id"] for item in all_equipment)
+    open_counts, repair_costs = _batch_ticket_stats(equipment_ids)
+    warranty_map = get_active_warranties_bulk(equipment_ids)
+    for item in all_equipment:
+        item["open_ticket_count"] = open_counts.get(item["id"], 0)
+        item["_total_repair_cost"] = repair_costs.get(item["id"], 0)
+        if "active_warranty" not in item:
+            item["active_warranty"] = warranty_map.get(item["id"])
 
     # ------------------------------------------------------------------
     # Apply filters
@@ -187,14 +185,23 @@ def render():
                or (e.get("category") or "") == selected_category
         ]
 
+    if warranty_filter == "Active Warranty":
+        filtered = [e for e in filtered if e.get("active_warranty")]
+    elif warranty_filter == "No Warranty":
+        filtered = [e for e in filtered if not e.get("active_warranty")]
+
     if search_text:
-        q = search_text.lower()
+        q = search_text.lower().strip()
         filtered = [
             e for e in filtered
             if q in (e.get("name") or "").lower()
             or q in (e.get("serial_number") or "").lower()
             or q in (e.get("manufacturer") or "").lower()
             or q in (e.get("model") or "").lower()
+            or q in (e.get("category") or "").lower()
+            or q in (e.get("notes") or "").lower()
+            or q in ((e.get("stores") or {}).get("name", "")).lower()
+            or q in ((e.get("stores") or {}).get("store_number", "")).lower()
         ]
 
     # ------------------------------------------------------------------
@@ -204,15 +211,13 @@ def render():
     under_warranty = sum(1 for e in filtered if e.get("active_warranty"))
     needs_attention = sum(1 for e in filtered if (e.get("open_ticket_count") or 0) > 0)
 
-    # Average age
     ages = []
     for e in filtered:
         install = e.get("install_date")
         if install:
             try:
                 install_dt = datetime.fromisoformat(str(install)).date()
-                age_days = (date.today() - install_dt).days
-                ages.append(age_days / 365.25)
+                ages.append((date.today() - install_dt).days / 365.25)
             except Exception:
                 pass
     avg_age = sum(ages) / len(ages) if ages else 0
@@ -227,15 +232,30 @@ def render():
     with col4:
         st.metric("Avg Age", f"{avg_age:.1f} yrs" if ages else "N/A")
 
+    # Show active search/filter notice
+    active_filters = []
+    if search_text:
+        active_filters.append(f'🔍 "{search_text}"')
+    if selected_store != "all":
+        active_filters.append(store_options[selected_store])
+    if selected_brand != "All Brands":
+        active_filters.append(selected_brand)
+    if selected_category != "All Categories":
+        active_filters.append(selected_category)
+    if warranty_filter != "All":
+        active_filters.append(warranty_filter)
+    if active_filters:
+        st.caption(f"Showing {total_count} item{'s' if total_count != 1 else ''} — filtered by: {' · '.join(active_filters)}")
+
     st.markdown("---")
 
     # ------------------------------------------------------------------
-    # Store-specific grouped view vs. flat list
+    # Grouped view: by store → by category
     # ------------------------------------------------------------------
     if selected_store != "all":
-        _render_store_equipment_view(filtered, selected_store, stores)
+        _render_store_equipment_view(filtered, selected_store, stores, search_text)
     else:
-        _render_equipment_list(filtered)
+        _render_all_stores_grouped(filtered, stores, search_text)
 
     # ------------------------------------------------------------------
     # Add Equipment button
@@ -245,45 +265,96 @@ def render():
 
 
 # ------------------------------------------------------------------
-# Equipment list (all-stores view)
+# All-stores grouped view: store → category
 # ------------------------------------------------------------------
 
-def _render_equipment_list(equipment: list[dict]):
-    """Render a flat equipment table with expandable detail rows."""
+def _render_all_stores_grouped(equipment: list[dict], stores: list[dict], search_text: str = ""):
+    """Render equipment grouped first by store, then by category within each store."""
     if not equipment:
         st.info("No equipment found matching your filters.")
         return
 
+    # Build a lookup: store_id → store record
+    store_map = {s["id"]: s for s in stores}
+
+    # Group equipment by store_id
+    by_store: dict[str, list[dict]] = {}
     for item in equipment:
         store_info = item.get("stores") or {}
-        store_label = f"{store_info.get('store_number', '?')} - {store_info.get('name', 'Unknown')}"
-        warranty = item.get("active_warranty")
-        open_tickets = item.get("open_ticket_count", 0)
+        sid = store_info.get("id") or item.get("store_id") or "unknown"
+        by_store.setdefault(sid, []).append(item)
 
-        # Warranty badge
-        if warranty:
-            w_badge = '<span style="color: #4CAF50; font-weight: 600;">Active</span>'
-        else:
-            # Check if any expired warranty exists
-            w_badge = '<span style="color: #9E9E9E;">None</span>'
+    # Sort stores by store_number
+    def _store_sort_key(sid):
+        s = store_map.get(sid) or {}
+        return s.get("store_number", "ZZZ")
 
-        # Build summary line
-        name = item.get("name", "Unknown")
-        mfr = item.get("manufacturer") or ""
-        model = item.get("model") or ""
-        serial = item.get("serial_number") or ""
-        category = item.get("category") or ""
-        install = item.get("install_date") or ""
+    for sid in sorted(by_store.keys(), key=_store_sort_key):
+        items = by_store[sid]
+        store_rec = store_map.get(sid) or (items[0].get("stores") or {})
+        store_num = store_rec.get("store_number", "?")
+        store_name = store_rec.get("name", "Unknown")
+        brand = store_rec.get("brand", "")
 
-        header_parts = [f"**{name}**"]
-        if mfr:
-            header_parts.append(f"{mfr}")
-        if model:
-            header_parts.append(f"Model: {model}")
-        header_text = " | ".join(header_parts)
+        under_warranty = sum(1 for i in items if i.get("active_warranty"))
+        open_tickets_total = sum(i.get("open_ticket_count", 0) for i in items)
 
-        with st.expander(f"{header_text}  --  {store_label}  |  {category}"):
-            _render_equipment_detail(item)
+        # Store section header
+        badge_parts = [f"{len(items)} items"]
+        if under_warranty:
+            badge_parts.append(f"{under_warranty} under warranty")
+        if open_tickets_total:
+            badge_parts.append(f"⚠️ {open_tickets_total} open ticket{'s' if open_tickets_total != 1 else ''}")
+        badge_text = " · ".join(badge_parts)
+
+        store_label = f"**{store_num} — {store_name}**"
+        if brand:
+            store_label += f"  ·  {brand}"
+
+        st.markdown(f"### 🏪 {store_num} — {store_name}" + (f" ({brand})" if brand else ""))
+        st.caption(badge_text)
+
+        # Group by category within this store
+        by_cat: dict[str, list[dict]] = {}
+        for item in items:
+            cat = item.get("category") or "Uncategorized"
+            by_cat.setdefault(cat, []).append(item)
+
+        for cat_name in sorted(by_cat.keys()):
+            cat_items = by_cat[cat_name]
+            st.markdown(f"#### {cat_name} ({len(cat_items)})")
+
+            for item in cat_items:
+                warranty = item.get("active_warranty")
+                open_cnt = item.get("open_ticket_count", 0)
+                name = item.get("name", "Unknown")
+                mfr = item.get("manufacturer") or ""
+                serial = item.get("serial_number") or ""
+                total_repair_cost = item.get("_total_repair_cost", 0)
+
+                # Highlight search term in label
+                label_parts = [f"**{name}**"]
+                if mfr:
+                    label_parts.append(mfr)
+                if serial:
+                    label_parts.append(f"S/N: {serial}")
+                label = " | ".join(label_parts)
+
+                indicators = []
+                if warranty:
+                    indicators.append("✅ Warranty")
+                if open_cnt > 0:
+                    indicators.append(f"⚠️ {open_cnt} open")
+                if total_repair_cost > 0:
+                    indicators.append(format_currency(total_repair_cost) + " spent")
+                indicator_str = "  ·  ".join(indicators)
+                if indicator_str:
+                    label += f"   —   {indicator_str}"
+
+                with st.expander(label):
+                    _render_equipment_detail(item)
+
+        st.markdown("---")
 
 
 def _render_equipment_detail(item: dict):
@@ -377,7 +448,7 @@ def _render_equipment_detail(item: dict):
 # Store equipment grouped view
 # ------------------------------------------------------------------
 
-def _render_store_equipment_view(equipment: list[dict], store_id: str, stores: list[dict]):
+def _render_store_equipment_view(equipment: list[dict], store_id: str, stores: list[dict], search_text: str = ""):
     """Render equipment grouped by category for a specific store."""
     if not equipment:
         st.info("No equipment found for this store.")
@@ -386,9 +457,9 @@ def _render_store_equipment_view(equipment: list[dict], store_id: str, stores: l
     store = next((s for s in stores if s["id"] == store_id), {})
     st.markdown(f"### Inventory for {store.get('store_number', '')} - {store.get('name', '')}")
 
-    # Pre-fetch total repair costs for all equipment in one query
-    eq_ids = [item["id"] for item in equipment]
-    repair_costs = _batch_repair_costs(eq_ids)
+    # Pre-fetch ticket stats for all equipment in one query
+    eq_ids = tuple(item["id"] for item in equipment)
+    _, repair_costs = _batch_ticket_stats(eq_ids)
     for item in equipment:
         item["_total_repair_cost"] = repair_costs.get(item["id"], 0)
 

@@ -23,6 +23,7 @@ def _get_secret(key: str, default: str = "") -> str:
 # ------------------------------------------------------------------
 SUPABASE_URL = _get_secret("SUPABASE_URL")
 SUPABASE_KEY = _get_secret("SUPABASE_KEY")
+SUPABASE_SERVICE_KEY = _get_secret("SUPABASE_SERVICE_KEY")  # service_role key for admin operations
 
 # ------------------------------------------------------------------
 # App metadata

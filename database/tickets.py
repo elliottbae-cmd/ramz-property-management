@@ -34,7 +34,7 @@ def get_ticket(ticket_id: str) -> dict | None:
         return None
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=120)
 def get_tickets_for_user(user_id: str) -> list[dict]:
     """Return tickets submitted by or assigned to a specific user."""
     try:
@@ -71,7 +71,7 @@ def get_tickets_for_client(client_id: str, filters: dict | None = None, limit: i
     return _fetch_tickets_for_client(client_id, limit)
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=120)
 def _fetch_tickets_for_client(
     client_id: str, limit: int = 100,
     store_id: str = "", status: str = "", urgency: str = "",

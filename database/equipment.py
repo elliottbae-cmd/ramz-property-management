@@ -41,31 +41,59 @@ def get_equipment_by_id(equip_id: str) -> dict | None:
 
 @st.cache_data(ttl=300)
 def get_equipment_for_client(client_id: str) -> list[dict]:
-    """Get all equipment across all stores for a client, with store info."""
+    """Get all equipment across all stores for a client, with store info.
+
+    Filters by store_id IN (...) so PostgREST applies a real WHERE clause
+    on the equipment table rather than fetching everything and discarding
+    non-matching rows after the join.
+    """
     try:
         sb = get_client()
+        # Step 1: get store IDs for this client (fast indexed lookup)
+        stores_result = (
+            sb.table("stores")
+            .select("id, store_number, name, brand")
+            .eq("client_id", client_id)
+            .eq("is_active", True)
+            .execute()
+        )
+        stores = stores_result.data or []
+        if not stores:
+            return []
+
+        store_ids = [s["id"] for s in stores]
+        store_map = {s["id"]: s for s in stores}
+
+        # Step 2: fetch only equipment belonging to this client's stores
         result = (
             sb.table("equipment")
-            .select("*, stores(id, store_number, name, brand)")
-            .eq("stores.client_id", client_id)
+            .select("*")
+            .in_("store_id", store_ids)
             .eq("is_active", True)
             .order("name")
             .execute()
         )
-        # Filter out rows where the store join didn't match (client_id filter)
-        return [r for r in (result.data or []) if r.get("stores")]
+        equipment = result.data or []
+
+        # Attach store info from our already-fetched store_map
+        for item in equipment:
+            sid = item.get("store_id")
+            item["stores"] = store_map.get(sid, {})
+
+        return equipment
     except Exception:
         return []
 
 
+@st.cache_data(ttl=300)
 def get_equipment_with_details(store_id: str) -> list[dict]:
     """Get equipment for a store with warranty status and open ticket counts.
 
     Returns equipment rows enriched with 'active_warranty' and 'open_ticket_count'.
+    Fully cached — uses bulk queries, no per-item DB calls.
     """
     try:
         sb = get_client()
-        # Get equipment
         eq_result = (
             sb.table("equipment")
             .select("*")
@@ -79,12 +107,12 @@ def get_equipment_with_details(store_id: str) -> list[dict]:
         if not equipment:
             return []
 
-        # Check warranties (cached per-item)
-        for item in equipment:
-            item["active_warranty"] = check_active_warranty(item["id"])
-
-        # Batch-fetch open ticket counts instead of N+1 queries
         eq_ids = [item["id"] for item in equipment]
+
+        # Bulk warranty check — one query for all items
+        warranty_map = get_active_warranties_bulk(eq_ids)
+
+        # Bulk ticket stats — open counts in one query
         try:
             ticket_result = (
                 sb.table("tickets")
@@ -102,6 +130,7 @@ def get_equipment_with_details(store_id: str) -> list[dict]:
             counts = {}
 
         for item in equipment:
+            item["active_warranty"] = warranty_map.get(item["id"])
             item["open_ticket_count"] = counts.get(item["id"], 0)
 
         return equipment
@@ -109,7 +138,38 @@ def get_equipment_with_details(store_id: str) -> list[dict]:
         return []
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
+def get_active_warranties_bulk(equipment_ids: tuple | list) -> dict[str, dict]:
+    """Fetch active warranties for multiple equipment items in a single query.
+
+    Returns a dict mapping equipment_id → warranty record (or empty dict if none).
+    Replaces N calls to check_active_warranty() with a single Supabase round trip.
+    """
+    if not equipment_ids:
+        return {}
+    try:
+        from datetime import date
+        today = date.today().isoformat()
+        sb = get_client()
+        result = (
+            sb.table("equipment_warranties")
+            .select("*")
+            .in_("equipment_id", equipment_ids)
+            .lte("start_date", today)
+            .gte("end_date", today)
+            .execute()
+        )
+        warranty_map: dict[str, dict] = {}
+        for row in (result.data or []):
+            eid = row.get("equipment_id")
+            if eid and eid not in warranty_map:
+                warranty_map[eid] = row
+        return warranty_map
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=120)
 def get_repair_history(equipment_id: str) -> list[dict]:
     """Get all tickets (repair history) for a specific piece of equipment."""
     try:

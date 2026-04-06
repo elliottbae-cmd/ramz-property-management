@@ -140,7 +140,7 @@ def render():
 def _render_management_view(ticket_id: str, user: dict, client_id: str):
     """Render the management/detail view for a ticket."""
     if st.button("< Back to Dashboard"):
-        del st.session_state["dashboard_ticket_id"]
+        st.session_state.pop("dashboard_ticket_id", None)
         st.rerun()
 
     ticket = get_ticket(ticket_id)

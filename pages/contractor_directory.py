@@ -151,7 +151,7 @@ def _render_add_contractor_form():
 def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
     """Render contractor detail view with reviews and management options."""
     if st.button("< Back to Directory"):
-        del st.session_state["selected_contractor_id"]
+        st.session_state.pop("selected_contractor_id", None)
         st.rerun()
 
     contractor = get_contractor(contractor_id)
