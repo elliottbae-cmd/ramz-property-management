@@ -342,29 +342,47 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             st.markdown("---")
 
         # --- Contractor Bid ---
+        ticket_status = ticket.get("status", "")
+        bid_locked = ticket_status in ("pending_approval", "approved") and current_bid > 0
+
         st.markdown("**Contractor Bid**")
-        st.caption("Enter the amount the contractor quoted. Saving this will send the ticket to the DM for approval.")
-        new_bid = st.number_input(
-            "Bid Amount ($)",
-            min_value=0.0, value=float(current_bid), step=50.0,
-            key="cost_bid_input",
-        )
-        if st.button("Save Bid & Request Approval", type="primary", width="stretch", key="save_bid"):
-            update_ticket(ticket_id, {"contractor_bid": new_bid, "estimated_cost": new_bid})
-            if new_bid > 0:
-                # Clear cache before checking to avoid stale results creating duplicate chains
-                get_ticket_approvals.clear()
-                existing = get_ticket_approvals(ticket_id)
-                if not existing:
-                    chain = initiate_approval_chain(ticket_id, client_id, new_bid)
-                    if chain:
-                        update_ticket(ticket_id, {"status": "pending_approval"})
-                        st.success(f"Bid of {format_currency(new_bid)} saved — approval request sent to DM.")
+        if bid_locked:
+            # Show locked state — bid is awaiting or has received approval
+            lock_label = "⏳ Awaiting DM Approval" if ticket_status == "pending_approval" else "✅ Approved"
+            lock_color = "#F57F17" if ticket_status == "pending_approval" else "#1B5E20"
+            st.markdown(
+                f'<div style="background:{lock_color}18; border-left:4px solid {lock_color}; '
+                f'padding:10px 14px; border-radius:4px; margin-bottom:8px;">'
+                f'<strong>{lock_label}</strong> — Contractor bid of '
+                f'<strong>{format_currency(current_bid)}</strong> has been submitted.</div>',
+                unsafe_allow_html=True,
+            )
+            if st.button("✏️ Update Bid Amount", key="bid_unlock", help="Only use this if the contractor revised their quote."):
+                update_ticket(ticket_id, {"status": "submitted"})
+                st.rerun()
+        else:
+            st.caption("Enter the amount the contractor quoted. Saving this will send the ticket to the DM for approval.")
+            new_bid = st.number_input(
+                "Bid Amount ($)",
+                min_value=0.0, value=float(current_bid), step=50.0,
+                key="cost_bid_input",
+            )
+            if st.button("Save Bid & Request Approval", type="primary", width="stretch", key="save_bid"):
+                update_ticket(ticket_id, {"contractor_bid": new_bid, "estimated_cost": new_bid})
+                if new_bid > 0:
+                    # Clear cache before checking to avoid stale results creating duplicate chains
+                    get_ticket_approvals.clear()
+                    existing = get_ticket_approvals(ticket_id)
+                    if not existing:
+                        chain = initiate_approval_chain(ticket_id, client_id, new_bid)
+                        if chain:
+                            update_ticket(ticket_id, {"status": "pending_approval"})
+                            st.success(f"Bid of {format_currency(new_bid)} saved — approval request sent to DM.")
+                        else:
+                            st.success(f"Bid saved: {format_currency(new_bid)}")
                     else:
-                        st.success(f"Bid saved: {format_currency(new_bid)}")
-                else:
-                    st.success(f"Bid updated to {format_currency(new_bid)}")
-            st.rerun()
+                        st.success(f"Bid updated to {format_currency(new_bid)}")
+                st.rerun()
 
         st.markdown("---")
 
