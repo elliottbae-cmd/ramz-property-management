@@ -42,6 +42,7 @@ def _get_warranty_review_tickets(client_id: str) -> list[dict]:
     return get_tickets_for_client(client_id, filters={"status": "warranty_check"}, limit=200)
 
 
+@st.cache_data(ttl=300)
 def _get_completed_today_count(client_id: str) -> int:
     """Count tickets that moved out of warranty_check today."""
     try:
@@ -59,6 +60,7 @@ def _get_completed_today_count(client_id: str) -> int:
         return 0
 
 
+@st.cache_data(ttl=300)
 def _get_warranties_found_this_month(client_id: str) -> int:
     """Count warranty records created this month."""
     try:
@@ -420,7 +422,7 @@ def _render_under_warranty_form(ticket_id: str, ai_data: dict):
     with col_url:
         claim_url = st.text_input(
             "Warranty Claim URL",
-            value=(ai_data.get("source_urls", [None]) or [None])[0] or "",
+            value=(ai_data.get("source_urls") or [""])[0] or "",
             key=f"wr_claim_url_{ticket_id}",
         )
 

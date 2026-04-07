@@ -20,7 +20,7 @@ from theme.branding import render_header
 from utils.constants import TICKET_STATUSES, STATUS_LABELS, STATUS_COLORS, URGENCY_LEVELS
 from database.cost_estimation import get_cost_estimate_details
 from utils.permissions import require_permission, can_manage_tickets
-from utils.helpers import format_currency
+from utils.helpers import format_currency, format_date_short
 
 
 def render():
@@ -94,7 +94,8 @@ def render():
     with m2:
         in_progress = sum(
             1 for t in tickets
-            if t["status"] in ("troubleshooting", "warranty_check", "assigned", "pending_approval", "approved", "in_progress")
+            if t["status"] in TICKET_STATUSES
+            and t["status"] not in ("completed", "closed", "submitted", "rejected")
         )
         st.metric("In Progress", in_progress)
     with m3:
@@ -433,7 +434,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                     f'{(" · " + contractor.get("phone")) if contractor.get("phone") else ""}<br>'
                     f'Amount: <strong>${wo.get("amount") or 0:,.2f}</strong> · '
                     f'Status: <strong>{wo.get("status", "").replace("_", " ").title()}</strong> · '
-                    f'Issued: {(wo.get("issued_at") or "")[:10]}'
+                    f'Issued: {format_date_short(wo.get("issued_at") or "")}'
                     f'{("<br>Notes: " + wo["notes"]) if wo.get("notes") else ""}'
                     f'</div>',
                     unsafe_allow_html=True,
@@ -535,8 +536,8 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                 timeliness = st.slider("Timeliness", 1, 5, 4, key="closeout_timeliness")
                 quality = st.slider("Quality of Work", 1, 5, 4, key="closeout_quality")
                 communication = st.slider("Communication", 1, 5, 4, key="closeout_communication")
-                rating_comment = st.text_input("Comment (optional)", key="closeout_rating_comment")
-                do_rate = st.checkbox("Submit rating with closeout", value=True, key="closeout_do_rate")
+                st.text_input("Comment (optional)", key="closeout_rating_comment")
+                st.checkbox("Submit rating with closeout", value=True, key="closeout_do_rate")
 
         # Invoice upload
         st.markdown("---")
