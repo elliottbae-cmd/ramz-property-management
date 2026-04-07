@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from database.supabase_client import get_current_user
 from database.tenant import get_effective_client_id
-from database.stores import get_stores
+from database.stores import get_stores, get_stores_for_user
 from database.reporting import (
     get_store_metrics, get_client_summary,
     get_resolution_times, get_urgency_breakdown,
@@ -48,7 +48,7 @@ def render():
         _render_overview(client_id)
 
     with tab_store:
-        _render_store_detail(client_id)
+        _render_store_detail(client_id, user)
 
     with tab_resolution:
         _render_resolution_times(client_id)
@@ -153,9 +153,9 @@ def _render_overview(client_id: str):
     st.download_button("Export to CSV", csv, "client_spend_summary.csv", "text/csv", width="stretch")
 
 
-def _render_store_detail(client_id: str):
+def _render_store_detail(client_id: str, user: dict = None):
     """Render detailed view for a specific store."""
-    stores = get_stores(client_id, active_only=False)
+    stores = get_stores_for_user(user, client_id) if user else get_stores(client_id)
     if not stores:
         st.info("No stores found.")
         return
