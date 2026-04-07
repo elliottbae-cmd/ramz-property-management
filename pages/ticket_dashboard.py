@@ -13,6 +13,7 @@ from database.users import get_users_for_client
 from database.contractors import get_contractors
 from database.work_orders import create_work_order
 from database.audit import log_action
+from database.approvals import initiate_approval_chain
 from components.ticket_card import render_ticket_card, render_ticket_detail
 from theme.branding import render_header
 from utils.constants import TICKET_STATUSES, STATUS_LABELS, STATUS_COLORS, URGENCY_LEVELS
@@ -277,6 +278,14 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             )
         if st.button("Update Estimate", width="stretch"):
             update_ticket(ticket_id, {"estimated_cost": new_estimate})
+            # Trigger approval chain when estimate is first entered
+            if new_estimate > 0:
+                existing = get_ticket_approvals(ticket_id)
+                if not existing:
+                    chain = initiate_approval_chain(ticket_id, client_id, new_estimate)
+                    if chain:
+                        update_ticket(ticket_id, {"status": "pending_approval"})
+                        st.info("Approval chain initiated — DM has been notified.")
             st.success(f"Estimate updated to {format_currency(new_estimate)}")
             st.rerun()
 

@@ -70,6 +70,10 @@ def initiate_approval_chain(ticket_id: str, client_id: str,
         sb = get_client()
         rows = []
         for step in config:
+            # Skip steps that have a minimum amount higher than the estimate
+            step_min = float(step.get("min_amount") or 0)
+            if estimated_cost < step_min:
+                continue
             row = {
                 "ticket_id": ticket_id,
                 "client_id": client_id,

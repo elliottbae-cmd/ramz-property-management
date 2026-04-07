@@ -11,7 +11,6 @@ from database.stores import get_stores_for_user
 from database.equipment import create_equipment
 from database.warranty_lookup import check_warranty_status, save_warranty_from_ai
 from database.tickets import create_ticket
-from database.approvals import initiate_approval_chain
 from database.audit import log_action
 from database.cost_estimation import get_cost_estimate_details
 from components.photo_upload import render_photo_upload, save_photos
@@ -268,18 +267,6 @@ def render():
             else:
                 st.caption(f"Target response time: {hours} hour(s)")
 
-    # ---- Estimated Cost (optional) ----
-    if cost_details:
-        est = cost_details["estimate"]
-        st.caption(
-            f"Suggested range: ${est['min']:,.0f} - ${est['max']:,.0f} "
-            f"based on {est['count']} similar repair{'s' if est['count'] != 1 else ''}"
-        )
-    estimated_cost = st.number_input(
-        "Estimated Cost ($)", min_value=0.0, step=50.0, value=0.0,
-        help="Optional - rough cost estimate for this repair",
-    )
-
     # ---- Photos ----
     st.markdown("---")
     uploaded_files = render_photo_upload()
@@ -333,9 +320,6 @@ def render():
                 "submitted_by": user["id"],
                 "status": "warranty_check",
             }
-            if estimated_cost > 0:
-                ticket_data["estimated_cost"] = estimated_cost
-
             result = create_ticket(ticket_data)
 
             if result:
@@ -344,10 +328,6 @@ def render():
                 # Upload photos
                 if uploaded_files:
                     save_photos(uploaded_files, ticket_id)
-
-                # Initiate approval chain if cost exceeds threshold
-                if estimated_cost > 0:
-                    initiate_approval_chain(ticket_id, client_id, estimated_cost)
 
                 # Audit log
                 log_action(
