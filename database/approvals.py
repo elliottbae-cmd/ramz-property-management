@@ -69,6 +69,7 @@ def initiate_approval_chain(ticket_id: str, client_id: str,
     try:
         sb = get_client()
         rows = []
+        first_active = True  # Only the first qualifying step starts as pending
         for step in config:
             # Skip steps that have a minimum amount higher than the estimate
             step_min = float(step.get("min_amount") or 0)
@@ -79,8 +80,9 @@ def initiate_approval_chain(ticket_id: str, client_id: str,
                 "client_id": client_id,
                 "role_required": step.get("role_required", "admin"),
                 "step_order": step.get("step_order", 1),
-                "status": "pending",
+                "status": "pending" if first_active else "waiting",
             }
+            first_active = False
             result = sb.table("approvals").insert(row).execute()
             if result.data:
                 rows.append(result.data[0])
@@ -149,7 +151,7 @@ def get_pending_approvals(user_id: str, client_id: str = None) -> list[dict]:
 
 
 def approve_ticket(approval_id: str, user_id: str, notes: str = None) -> dict | None:
-    """Mark an approval step as approved."""
+    """Mark an approval step as approved, then activate the next waiting step."""
     try:
         sb = get_client()
         data = {
@@ -165,7 +167,28 @@ def approve_ticket(approval_id: str, user_id: str, notes: str = None) -> dict | 
             .eq("id", approval_id)
             .execute()
         )
-        return result.data[0] if result.data else None
+        if not result.data:
+            return None
+
+        approved_row = result.data[0]
+        ticket_id = approved_row.get("ticket_id")
+
+        # Activate the next waiting step for this ticket
+        if ticket_id:
+            next_result = (
+                sb.table("approvals")
+                .select("id")
+                .eq("ticket_id", ticket_id)
+                .eq("status", "waiting")
+                .order("step_order")
+                .limit(1)
+                .execute()
+            )
+            if next_result.data:
+                next_id = next_result.data[0]["id"]
+                sb.table("approvals").update({"status": "pending"}).eq("id", next_id).execute()
+
+        return approved_row
     except Exception:
         return None
 
