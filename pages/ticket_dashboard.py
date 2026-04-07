@@ -9,7 +9,6 @@ from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
 from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment, update_ticket
-from database.users import get_users_for_client
 from database.contractors import get_contractors
 from database.work_orders import create_work_order
 from database.audit import log_action
@@ -192,13 +191,8 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
     )
 
     with tab_assign:
-        # Get users who can be assigned — exclude GMs (they submit, they don't own repairs)
-        ASSIGNABLE_ROLES = {"dm", "doo", "vp", "admin", "coo"}
-        client_users = [
-            u for u in get_users_for_client(client_id)
-            if u.get("client_role") in ASSIGNABLE_ROLES
-        ]
-        # Also include PSP users who have access to this client
+        # Assignment is PSP-only — PSP staff coordinate repairs, client users (DM/VP etc.) approve
+        psp_users = []
         try:
             sb = get_client()
             psp_access = (
@@ -210,14 +204,20 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             for row in (psp_access.data or []):
                 u = row.get("users") or {}
                 if u.get("id"):
-                    u["client_role"] = u.get("psp_role", "psp")
-                    client_users.append(u)
+                    psp_users.append({
+                        "id": u["id"],
+                        "full_name": u.get("full_name", "Unknown"),
+                        "psp_role": u.get("psp_role", "psp"),
+                    })
         except Exception:
             pass
 
-        if client_users:
-            st.markdown("**Assign to team member:**")
-            user_options = {u["id"]: f"{u['full_name']} ({u.get('client_role', 'N/A')})" for u in client_users}
+        if psp_users:
+            st.markdown("**Assign to PSP team member:**")
+            user_options = {
+                u["id"]: f"{u['full_name']} ({u['psp_role'].replace('_', ' ').title()})"
+                for u in psp_users
+            }
             selected_user = st.selectbox(
                 "Select team member",
                 options=list(user_options.keys()),
@@ -234,7 +234,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                 else:
                     st.error("Failed to assign ticket.")
         else:
-            st.info("No team members found for this client.")
+            st.info("No PSP team members are assigned to this client yet. Add PSP users in PSP Admin → Client Access.")
 
     with tab_cost:
         # Historical cost estimate from past repairs
