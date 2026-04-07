@@ -343,13 +343,20 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
 
         # --- Contractor Bid ---
         ticket_status = ticket.get("status", "")
-        bid_locked = ticket_status in ("pending_approval", "approved") and current_bid > 0
+        bid_locked = ticket_status in ("pending_approval", "approved", "in_progress", "completed", "closed") and current_bid > 0
 
         st.markdown("**Contractor Bid**")
         if bid_locked:
             # Show locked state — bid is awaiting or has received approval
-            lock_label = "⏳ Awaiting DM Approval" if ticket_status == "pending_approval" else "✅ Approved"
-            lock_color = "#F57F17" if ticket_status == "pending_approval" else "#1B5E20"
+            if ticket_status == "pending_approval":
+                lock_label = "⏳ Awaiting DM Approval"
+                lock_color = "#F57F17"
+            elif ticket_status in ("in_progress", "completed", "closed"):
+                lock_label = "✅ Approved & In Progress"
+                lock_color = "#1B5E20"
+            else:
+                lock_label = "✅ Approved"
+                lock_color = "#1B5E20"
             st.markdown(
                 f'<div style="background:{lock_color}18; border-left:4px solid {lock_color}; '
                 f'padding:10px 14px; border-radius:4px; margin-bottom:8px;">'
