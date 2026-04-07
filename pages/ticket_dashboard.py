@@ -200,6 +200,7 @@ def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: 
             update_ticket(ticket_id, {"status": "in_progress"})
             log_action(client_id, user["id"], "create", "work_order", wo["id"],
                        {"ticket_id": ticket_id, "contractor_id": selected_contractor})
+            get_work_orders.clear()
             st.success("Work order issued!")
             st.rerun()
         else:
