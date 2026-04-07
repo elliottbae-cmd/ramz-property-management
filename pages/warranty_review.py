@@ -137,6 +137,62 @@ def render():
 
 
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# Locked warranty summary (after review is complete)
+# ------------------------------------------------------------------
+
+def _render_locked_warranty_summary(ticket: dict, ticket_id: str, client_id: str, user: dict):
+    """Show a read-only summary after warranty review is complete."""
+    from database.tickets import get_ticket_comments
+
+    # Pull warranty details from the internal comment saved at completion
+    comments = get_ticket_comments(ticket_id)
+    warranty_comment = next(
+        (c for c in comments if "Warranty review complete" in (c.get("comment") or "")),
+        None,
+    )
+
+    decision_color = "#1B5E20"
+    decision_label = "✅ Warranty Review Complete"
+    if warranty_comment:
+        text = warranty_comment.get("comment", "")
+        if "NOT UNDER WARRANTY" in text.upper() or "no active warranty" in text.lower():
+            decision_color = "#424242"
+            decision_label = "✅ Warranty Review Complete — Not Under Warranty"
+        elif "UNDER WARRANTY" in text.upper():
+            decision_color = "#1B5E20"
+            decision_label = "✅ Warranty Review Complete — Under Warranty"
+        elif "UNKNOWN" in text.upper():
+            decision_color = "#F57F17"
+            decision_label = "✅ Warranty Review Complete — Status Unknown"
+
+    st.markdown(
+        f'<div style="background:{decision_color}; color:white; padding:12px 16px; '
+        f'border-radius:8px; margin:8px 0;">'
+        f'<strong>{decision_label}</strong></div>',
+        unsafe_allow_html=True,
+    )
+
+    if warranty_comment:
+        st.markdown("**Review notes:**")
+        st.code(warranty_comment.get("comment", ""), language=None)
+        reviewed_at = (warranty_comment.get("created_at") or "")[:10]
+        if reviewed_at:
+            st.caption(f"Reviewed: {reviewed_at}")
+
+    st.markdown("---")
+    if st.button(
+        "🔄 Re-run Warranty Check",
+        key=f"wr_rerun_{ticket_id}",
+        help="Only use this if new information has come in that changes the warranty status.",
+    ):
+        # Reset warranty_checked so the ticket re-enters the editable review flow
+        update_ticket(ticket_id, {"warranty_checked": False, "status": "warranty_check"})
+        log_action(client_id, user["id"], "warranty_reopen", "ticket", ticket_id, {})
+        st.rerun()
+
+
+# ------------------------------------------------------------------
 # Individual ticket review card
 # ------------------------------------------------------------------
 
@@ -163,6 +219,12 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
     is_expanded = st.session_state.get(expand_key, False)
 
     with st.expander(header_line, expanded=is_expanded):
+
+        # ---- Already reviewed — show locked summary ----
+        if ticket.get("warranty_checked"):
+            _render_locked_warranty_summary(ticket, ticket_id, client_id, user)
+            return
+
         # ---- Ticket summary ----
         col_info, col_urgency = st.columns([3, 1])
         with col_info:
@@ -683,7 +745,8 @@ def _complete_under_warranty(
         details={"decision": "under_warranty", "provider": provider},
     )
 
-    st.success(f"Warranty review complete for Ticket #{ticket.get('ticket_number', 'N/A')}. Routed to approval queue with warranty instructions.")
+    st.success(f"✅ Warranty review complete for Ticket #{ticket.get('ticket_number', 'N/A')}. Ticket has been routed forward with warranty instructions for the GM/DM.")
+    st.session_state[f"wr_expanded_{ticket.get('id', '')}"] = False
     st.rerun()
 
 
