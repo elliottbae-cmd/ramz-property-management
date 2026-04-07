@@ -9,10 +9,8 @@ from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
 from database.equipment import create_equipment
-from database.warranty_lookup import check_warranty_status, save_warranty_from_ai
 from database.tickets import create_ticket
 from database.audit import log_action
-from database.cost_estimation import get_cost_estimate_details
 from components.photo_upload import render_photo_upload, save_photos
 from theme.branding import render_header
 
@@ -213,31 +211,6 @@ def render():
                 "Serial Number", placeholder="e.g., ABC-12345", key="serial_input"
             )
 
-    # ---- Warranty Check ----
-    if selected_equipment_type and selected_equipment_type != "":
-        _render_warranty_check(
-            equipment_name=new_equipment_name,
-            manufacturer=new_manufacturer,
-            model=new_brand,  # model field is labeled "Model" but stored in new_brand var
-            serial_number=new_serial,
-            category=category_name,
-        )
-
-    # ---- Cost Estimation Hint ----
-    cost_details = None
-    if category_name and client_id:
-        equip_for_estimate = new_equipment_name if new_equipment_name else None
-        cost_details = get_cost_estimate_details(client_id, category_name, equip_for_estimate)
-        if cost_details:
-            est = cost_details["estimate"]
-            if est["count"] >= 3:
-                st.info(f"{cost_details['display']}\n\n*Based on historical repair data*")
-            elif est["count"] >= 1:
-                st.info(
-                    f"{cost_details['display']}\n\n"
-                    "*Limited data -- estimate may not be representative*"
-                )
-
     # ---- Description ----
     description = st.text_area(
         "What's going on? *",
@@ -318,7 +291,7 @@ def render():
                 "description": description.strip(),
                 "urgency": selected_urgency,
                 "submitted_by": user["id"],
-                "status": "warranty_check",
+                "status": "submitted",
             }
             result = create_ticket(ticket_data)
 
@@ -352,122 +325,3 @@ def render():
             st.error(f"Error submitting request: {str(e)}")
 
 
-# ------------------------------------------------------------------
-# Warranty check widget
-# ------------------------------------------------------------------
-
-def _render_warranty_check(
-    equipment_name: str | None,
-    manufacturer: str | None,
-    model: str | None,
-    serial_number: str | None,
-    category: str | None,
-):
-    """Render a 'Check Warranty' button and display results."""
-    if st.button("Check Warranty", key="warranty_check_btn"):
-        equipment_data = {
-            "equipment_name": equipment_name or "",
-            "manufacturer": manufacturer or "",
-            "model": model or "",
-            "serial_number": serial_number or "",
-            "category": category or "",
-        }
-
-        with st.spinner("Checking warranty status..."):
-            result = check_warranty_status(equipment_data)
-
-        st.session_state["warranty_check_result"] = result
-
-    # Display result if available
-    result = st.session_state.get("warranty_check_result")
-    if not result:
-        return
-
-    recommendation = result.get("recommendation", "")
-
-    if result.get("has_db_warranty"):
-        # GREEN -- active warranty on file
-        st.markdown(
-            f'<div style="background-color: #1B5E20; color: white; padding: 12px 16px; '
-            f'border-radius: 8px; margin: 8px 0;">'
-            f'<strong>Under Warranty</strong><br>{recommendation}</div>',
-            unsafe_allow_html=True,
-        )
-        st.info(
-            "This may be covered under warranty. Consider contacting the "
-            "manufacturer before requesting repairs."
-        )
-    elif result.get("ai_lookup_performed") and result.get("ai_result"):
-        ai = result["ai_result"]
-        confidence = ai.get("confidence", "low")
-
-        # Confidence badge
-        conf_colors = {"high": "#1B5E20", "medium": "#F57F17", "low": "#B71C1C"}
-        conf_color = conf_colors.get(confidence, "#616161")
-
-        if ai.get("likely_under_warranty") and confidence in ("high", "medium"):
-            # GREEN/YELLOW -- AI thinks under warranty
-            bg = "#1B5E20" if confidence == "high" else "#F57F17"
-            label = "Likely Under Warranty" if confidence == "high" else "Warranty Status Uncertain"
-            st.markdown(
-                f'<div style="background-color: {bg}; color: white; padding: 12px 16px; '
-                f'border-radius: 8px; margin: 8px 0;">'
-                f'<strong>{label}</strong> '
-                f'<span style="background-color: {conf_color}; color: white; '
-                f'padding: 2px 8px; border-radius: 12px; font-size: 0.8em; '
-                f'margin-left: 8px;">{confidence.upper()} confidence</span>'
-                f'<br>{recommendation}</div>',
-                unsafe_allow_html=True,
-            )
-            if confidence == "high":
-                st.info(
-                    "This may be covered under warranty. Consider contacting the "
-                    "manufacturer before requesting repairs."
-                )
-            else:
-                st.warning("PSP should verify warranty status with the manufacturer.")
-        else:
-            # RED -- warranty likely expired or low confidence
-            st.markdown(
-                f'<div style="background-color: #B71C1C; color: white; padding: 12px 16px; '
-                f'border-radius: 8px; margin: 8px 0;">'
-                f'<strong>Warranty Likely Expired</strong> '
-                f'<span style="background-color: {conf_color}; color: white; '
-                f'padding: 2px 8px; border-radius: 12px; font-size: 0.8em; '
-                f'margin-left: 8px;">{confidence.upper()} confidence</span>'
-                f'<br>{recommendation}</div>',
-                unsafe_allow_html=True,
-            )
-
-        # Show AI details in expander
-        with st.expander("View AI Research Details"):
-            warranty_period = ai.get("warranty_period") or ai.get("typical_warranty_period", "N/A")
-            st.write(f"**Warranty Period:** {warranty_period}")
-            st.write(f"**Coverage Type:** {ai.get('coverage_type', 'N/A')}")
-            st.write(f"**Estimated Expiry:** {ai.get('estimated_expiry', 'N/A')}")
-            st.write(f"**Manufacturer Contact:** {ai.get('manufacturer_contact', 'N/A')}")
-            st.write(f"**Claim Process:** {ai.get('claim_process', 'N/A')}")
-            if ai.get("notes"):
-                st.write(f"**Notes:** {ai['notes']}")
-
-            # Web search indicator
-            if ai.get("web_search_used"):
-                st.caption("Results based on live web search + AI analysis")
-            else:
-                st.caption("Results based on AI training data only")
-
-            # Source URLs
-            source_urls = ai.get("source_urls", [])
-            if source_urls:
-                st.markdown("**Sources:**")
-                for url in source_urls:
-                    display_url = url if len(url) <= 80 else url[:77] + "..."
-                    st.markdown(f"- [{display_url}]({url})")
-    else:
-        # No warranty info at all
-        st.markdown(
-            f'<div style="background-color: #616161; color: white; padding: 12px 16px; '
-            f'border-radius: 8px; margin: 8px 0;">'
-            f'<strong>No Warranty Info</strong><br>{recommendation}</div>',
-            unsafe_allow_html=True,
-        )
