@@ -306,7 +306,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             st.info("No PSP team members are assigned to this client yet. Add PSP users in PSP Admin → Client Access.")
 
     with tab_cost:
-        # Historical cost estimate from past repairs
+        # Historical cost data from past completed repairs (context only)
         ticket_category = ticket.get("category", "")
         equip_name = None
         if ticket.get("equipment") and isinstance(ticket["equipment"], dict):
@@ -317,56 +317,79 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             est = cost_details["estimate"]
             confidence = "low confidence" if est["low_confidence"] else f"{est['count']} repairs"
             st.info(
-                f"Historical estimate ({confidence}): "
-                f"${est['min']:,.0f} - ${est['max']:,.0f} (avg: ${est['avg']:,.0f})"
+                f"Historical range for similar repairs ({confidence}): "
+                f"${est['min']:,.0f} – ${est['max']:,.0f}  ·  avg ${est['avg']:,.0f}"
             )
 
-        # Show comparison if actual cost is filled in
+        current_bid = ticket.get("contractor_bid") or 0
         actual = ticket.get("actual_cost") or 0
-        current_est = ticket.get("estimated_cost") or 0
-        if actual > 0 and cost_details:
-            est = cost_details["estimate"]
-            st.markdown(
-                f"**Estimated range:** ${est['min']:,.0f} - ${est['max']:,.0f} | "
-                f"**User estimate:** {format_currency(current_est)} | "
-                f"**Actual:** {format_currency(actual)}"
-            )
-        elif actual > 0 and current_est > 0:
-            st.markdown(
-                f"**User estimate:** {format_currency(current_est)} | "
-                f"**Actual:** {format_currency(actual)}"
-            )
 
-        new_estimate = st.number_input(
-            "Estimated Cost ($)", min_value=0.0, value=float(current_est), step=50.0,
+        # Bid vs. actual comparison summary
+        if current_bid > 0 or actual > 0:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("Contractor Bid", format_currency(current_bid))
+            with c2:
+                if actual > 0 and current_bid > 0:
+                    delta = actual - current_bid
+                    st.metric("Final Invoice", format_currency(actual),
+                              delta=f"{'+' if delta >= 0 else ''}{format_currency(delta)}",
+                              delta_color="inverse")
+                else:
+                    st.metric("Final Invoice", format_currency(actual) if actual > 0 else "Not set")
+            st.markdown("---")
+
+        # --- Contractor Bid ---
+        st.markdown("**Contractor Bid**")
+        st.caption("Enter the amount the contractor quoted. Saving this will send the ticket to the DM for approval.")
+        new_bid = st.number_input(
+            "Bid Amount ($)",
+            min_value=0.0, value=float(current_bid), step=50.0,
+            key="cost_bid_input",
         )
-        if cost_details:
-            st.caption(
-                f"Suggested range: ${cost_details['estimate']['min']:,.0f} - "
-                f"${cost_details['estimate']['max']:,.0f}"
-            )
-        if st.button("Update Estimate", width="stretch"):
-            update_ticket(ticket_id, {"estimated_cost": new_estimate})
-            # Trigger approval chain when estimate is first entered
-            if new_estimate > 0:
+        if st.button("Save Bid & Request Approval", type="primary", width="stretch", key="save_bid"):
+            update_ticket(ticket_id, {"contractor_bid": new_bid, "estimated_cost": new_bid})
+            if new_bid > 0:
                 existing = get_ticket_approvals(ticket_id)
                 if not existing:
-                    chain = initiate_approval_chain(ticket_id, client_id, new_estimate)
+                    chain = initiate_approval_chain(ticket_id, client_id, new_bid)
                     if chain:
                         update_ticket(ticket_id, {"status": "pending_approval"})
-                        st.info("Approval chain initiated — DM has been notified.")
-            st.success(f"Estimate updated to {format_currency(new_estimate)}")
+                        st.success(f"Bid of {format_currency(new_bid)} saved — approval request sent to DM.")
+                    else:
+                        st.success(f"Bid saved: {format_currency(new_bid)}")
+                else:
+                    st.success(f"Bid updated to {format_currency(new_bid)}")
             st.rerun()
 
+        st.markdown("---")
+
+        # --- Final Invoice (PSP fills in after work is complete) ---
+        st.markdown("**Final Invoice Amount**")
+        st.caption("Enter the actual amount on the contractor's invoice after the work is done.")
         new_actual = st.number_input(
-            "Actual Cost ($)", min_value=0.0, value=float(actual), step=50.0,
+            "Invoice Amount ($)",
+            min_value=0.0, value=float(actual), step=50.0,
+            key="cost_actual_input",
         )
-        if st.button("Update Actual Cost", width="stretch"):
+        if current_bid > 0 and new_actual > 0:
+            variance_pct = ((new_actual - current_bid) / current_bid) * 100
+            if abs(variance_pct) >= 10:
+                color = "#C0392B" if variance_pct > 0 else "#27AE60"
+                st.markdown(
+                    f'<div style="background:{color}18; border-left:3px solid {color}; '
+                    f'padding:6px 12px; border-radius:4px; font-size:0.85rem; margin-bottom:8px;">'
+                    f'{"⚠️ Invoice is" if variance_pct > 0 else "✅ Invoice is"} '
+                    f'<strong>{abs(variance_pct):.1f}% {"over" if variance_pct > 0 else "under"} bid</strong>'
+                    f' ({format_currency(abs(new_actual - current_bid))})</div>',
+                    unsafe_allow_html=True,
+                )
+        if st.button("Save Invoice Amount", width="stretch", key="save_actual"):
             update_ticket(ticket_id, {"actual_cost": new_actual})
-            st.success(f"Actual cost updated to {format_currency(new_actual)}")
+            st.success(f"Invoice amount saved: {format_currency(new_actual)}")
             st.rerun()
 
-        # Document attachments — estimates and invoices
+        # Document attachments — bids and invoices
         st.markdown("---")
         st.markdown("**Documents**")
         render_document_list(ticket_id)
@@ -375,7 +398,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             client_id=client_id,
             user_id=user["id"],
             allowed_types=["estimate", "invoice", "other"],
-            label="Attach Estimate or Invoice",
+            label="Attach Bid or Invoice",
         )
 
     with tab_status:
@@ -450,16 +473,43 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
         st.markdown("Complete this form to mark the repair as done and close the ticket.")
         st.markdown("---")
 
-        # Actual cost (pre-fill from ticket)
+        # Show bid vs actual context if bid exists
+        current_bid = ticket.get("contractor_bid") or 0
         actual = ticket.get("actual_cost") or 0
+        if current_bid > 0:
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                st.metric("Contractor Bid", format_currency(current_bid))
+            with bc2:
+                if actual > 0:
+                    delta = actual - current_bid
+                    st.metric("Current Actual", format_currency(actual),
+                              delta=f"{'+' if delta >= 0 else ''}{format_currency(delta)}",
+                              delta_color="inverse")
+                else:
+                    st.metric("Current Actual", "Not set")
+            st.markdown("---")
+
         closeout_actual = st.number_input(
-            "Final Actual Cost ($)",
+            "Final Invoiced Amount ($)",
             min_value=0.0,
             value=float(actual),
             step=50.0,
             key="closeout_actual",
-            help="Enter the final invoiced amount. Updates the actual cost field.",
+            help="The exact amount on the contractor's final invoice. This is the authoritative cost for this job.",
         )
+        if current_bid > 0 and closeout_actual > 0:
+            variance_pct = ((closeout_actual - current_bid) / current_bid) * 100
+            if abs(variance_pct) >= 10:
+                color = "#C0392B" if variance_pct > 0 else "#27AE60"
+                st.markdown(
+                    f'<div style="background:{color}18; border-left:3px solid {color}; '
+                    f'padding:6px 12px; border-radius:4px; font-size:0.85rem; margin-bottom:8px;">'
+                    f'{"⚠️ Invoice is" if variance_pct > 0 else "✅ Invoice is"} '
+                    f'<strong>{abs(variance_pct):.1f}% {"over" if variance_pct > 0 else "under"} bid</strong>'
+                    f' ({format_currency(abs(closeout_actual - current_bid))})</div>',
+                    unsafe_allow_html=True,
+                )
 
         # Resolution notes
         resolution_notes = st.text_area(
