@@ -15,6 +15,7 @@ from database.work_orders import create_work_order, get_work_orders
 from database.audit import log_action
 from database.approvals import initiate_approval_chain
 from components.ticket_card import render_ticket_card, render_ticket_detail
+from components.document_upload import render_document_upload, render_document_list
 from theme.branding import render_header
 from utils.constants import TICKET_STATUSES, STATUS_LABELS, STATUS_COLORS, URGENCY_LEVELS
 from database.cost_estimation import get_cost_estimate_details
@@ -254,8 +255,8 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
     st.markdown("---")
     st.markdown("### Management Actions")
 
-    tab_assign, tab_cost, tab_status, tab_workorder, tab_comment = st.tabs(
-        ["Assign", "Cost Estimate", "Status", "Work Order", "Comment"]
+    tab_assign, tab_cost, tab_status, tab_workorder, tab_comment, tab_closeout = st.tabs(
+        ["Assign", "Cost Estimate", "Status", "Work Order", "Comment", "Close Out"]
     )
 
     with tab_assign:
@@ -365,6 +366,18 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             st.success(f"Actual cost updated to {format_currency(new_actual)}")
             st.rerun()
 
+        # Document attachments — estimates and invoices
+        st.markdown("---")
+        st.markdown("**Documents**")
+        render_document_list(ticket_id)
+        render_document_upload(
+            ticket_id=ticket_id,
+            client_id=client_id,
+            user_id=user["id"],
+            allowed_types=["estimate", "invoice", "other"],
+            label="Attach Estimate or Invoice",
+        )
+
     with tab_status:
         current_status = ticket.get("status", "submitted")
         new_status = st.selectbox(
@@ -422,5 +435,103 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                     st.rerun()
                 else:
                     st.error("Failed to add comment.")
+
+    with tab_closeout:
+        current_status = ticket.get("status", "")
+        if current_status in ("completed", "closed"):
+            st.success(f"This ticket is already **{STATUS_LABELS.get(current_status, current_status)}**.")
+            st.markdown(f"**Resolution notes:** {ticket.get('resolution_notes') or '(none)'}")
+            if ticket.get("resolved_at"):
+                st.caption(f"Closed: {ticket['resolved_at'][:10]}")
+            st.markdown("---")
+            st.markdown("**Attachments**")
+            render_document_list(ticket_id)
+            return
+
+        st.markdown("Complete this form to mark the repair as done and close the ticket.")
+        st.markdown("---")
+
+        # Actual cost (pre-fill from ticket)
+        actual = ticket.get("actual_cost") or 0
+        closeout_actual = st.number_input(
+            "Final Actual Cost ($)",
+            min_value=0.0,
+            value=float(actual),
+            step=50.0,
+            key="closeout_actual",
+            help="Enter the final invoiced amount. Updates the actual cost field.",
+        )
+
+        # Resolution notes
+        resolution_notes = st.text_area(
+            "Resolution Notes *",
+            key="closeout_notes",
+            placeholder="What was done? What was replaced or repaired? Any follow-up needed?",
+            height=120,
+        )
+
+        # Contractor rating (optional)
+        from database.contractors import get_contractor
+        from database.work_orders import get_work_orders as _get_wos
+        wos = _get_wos(client_id, ticket_id=ticket_id)
+        contractor_id = None
+        if wos:
+            contractor_id = wos[0].get("contractor_id")
+            contractor = get_contractor(contractor_id) if contractor_id else None
+            if contractor:
+                st.markdown("---")
+                st.markdown(f"**Rate {contractor['company_name']}** (optional)")
+                rating = st.slider("Overall Rating", 1, 5, 4, key="closeout_rating")
+                timeliness = st.slider("Timeliness", 1, 5, 4, key="closeout_timeliness")
+                quality = st.slider("Quality of Work", 1, 5, 4, key="closeout_quality")
+                communication = st.slider("Communication", 1, 5, 4, key="closeout_communication")
+                rating_comment = st.text_input("Comment (optional)", key="closeout_rating_comment")
+                do_rate = st.checkbox("Submit rating with closeout", value=True, key="closeout_do_rate")
+
+        # Invoice upload
+        st.markdown("---")
+        st.markdown("**Attach Final Invoice** (optional)")
+        render_document_upload(
+            ticket_id=ticket_id,
+            client_id=client_id,
+            user_id=user["id"],
+            allowed_types=["invoice", "other"],
+            label="Attach Invoice",
+        )
+        render_document_list(ticket_id)
+
+        st.markdown("---")
+        if st.button("✅ Close Out Ticket", type="primary", width="stretch", key="do_closeout"):
+            if not resolution_notes or not resolution_notes.strip():
+                st.error("Please enter resolution notes before closing out.")
+            else:
+                from datetime import datetime, timezone
+                # Update ticket
+                update_ticket(ticket_id, {
+                    "status": "completed",
+                    "actual_cost": closeout_actual,
+                    "resolution_notes": resolution_notes.strip(),
+                    "resolved_at": datetime.now(timezone.utc).isoformat(),
+                })
+
+                # Submit contractor rating if requested
+                if contractor_id and wos and st.session_state.get("closeout_do_rate", True):
+                    from database.contractors import add_review
+                    add_review({
+                        "contractor_id": contractor_id,
+                        "ticket_id": ticket_id,
+                        "reviewed_by": user["id"],
+                        "rating": st.session_state.get("closeout_rating", 4),
+                        "timeliness": st.session_state.get("closeout_timeliness", 4),
+                        "quality": st.session_state.get("closeout_quality", 4),
+                        "communication": st.session_state.get("closeout_communication", 4),
+                        "comment": st.session_state.get("closeout_rating_comment") or None,
+                    })
+
+                log_action(client_id, user["id"], "closeout", "ticket", ticket_id,
+                           {"actual_cost": closeout_actual, "resolution": resolution_notes.strip()})
+
+                st.success("Ticket closed out successfully!")
+                st.rerun()
 
 
