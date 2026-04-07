@@ -291,7 +291,7 @@ def render():
                 "description": description.strip(),
                 "urgency": selected_urgency,
                 "submitted_by": user["id"],
-                "status": "submitted",
+                "status": "warranty_check",
             }
             result = create_ticket(ticket_data)
 
