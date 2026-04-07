@@ -132,7 +132,7 @@ def render():
                 )
             render_ticket_card(ticket)
         with col_action:
-            if st.button("Manage", key=f"manage_{ticket['id']}", use_container_width=True):
+            if st.button("Manage", key=f"manage_{ticket['id']}", width="stretch"):
                 st.session_state["dashboard_ticket_id"] = ticket["id"]
                 st.rerun()
 
@@ -223,7 +223,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                 format_func=lambda x: user_options[x],
                 key="assign_user",
             )
-            if st.button("Assign", key="do_assign", use_container_width=True):
+            if st.button("Assign", key="do_assign", width="stretch"):
                 result = update_ticket(ticket_id, {"assigned_to": selected_user, "status": "assigned"})
                 if result:
                     log_action(client_id, user["id"], "update", "ticket", ticket_id,
@@ -275,7 +275,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                 f"Suggested range: ${cost_details['estimate']['min']:,.0f} - "
                 f"${cost_details['estimate']['max']:,.0f}"
             )
-        if st.button("Update Estimate", use_container_width=True):
+        if st.button("Update Estimate", width="stretch"):
             update_ticket(ticket_id, {"estimated_cost": new_estimate})
             st.success(f"Estimate updated to {format_currency(new_estimate)}")
             st.rerun()
@@ -283,7 +283,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
         new_actual = st.number_input(
             "Actual Cost ($)", min_value=0.0, value=float(actual), step=50.0,
         )
-        if st.button("Update Actual Cost", use_container_width=True):
+        if st.button("Update Actual Cost", width="stretch"):
             update_ticket(ticket_id, {"actual_cost": new_actual})
             st.success(f"Actual cost updated to {format_currency(new_actual)}")
             st.rerun()
@@ -296,7 +296,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             index=TICKET_STATUSES.index(current_status) if current_status in TICKET_STATUSES else 0,
             format_func=lambda x: STATUS_LABELS.get(x, x),
         )
-        if st.button("Update Status", use_container_width=True):
+        if st.button("Update Status", width="stretch"):
             update_ticket(ticket_id, {"status": new_status})
             log_action(client_id, user["id"], "update", "ticket", ticket_id,
                        {"status_change": f"{current_status} -> {new_status}"})
@@ -320,7 +320,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             wo_amount = st.number_input("Work Order Amount ($)", min_value=0.0, step=50.0, key="wo_amount")
             wo_notes = st.text_area("Notes", key="wo_notes", placeholder="Special instructions for the contractor...")
 
-            if st.button("Issue Work Order", type="primary", use_container_width=True):
+            if st.button("Issue Work Order", type="primary", width="stretch"):
                 wo = create_work_order({
                     "ticket_id": ticket_id,
                     "client_id": client_id,
@@ -345,7 +345,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             placeholder="Internal note or update...",
         )
         is_internal = st.checkbox("Internal note (visible to management only)", value=True, key="mgmt_internal")
-        if st.button("Post Comment", key="post_mgmt_comment", use_container_width=True):
+        if st.button("Post Comment", key="post_mgmt_comment", width="stretch"):
             if new_comment and new_comment.strip():
                 result = add_comment(ticket_id, user["id"], new_comment.strip(), is_internal=is_internal)
                 if result:

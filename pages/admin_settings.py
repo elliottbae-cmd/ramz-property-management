@@ -110,7 +110,7 @@ def _render_user_management(client_id: str, admin_user: dict):
 
             col_save, col_toggle = st.columns(2)
             with col_save:
-                if st.button("Save Changes", key=f"save_{u['id']}", use_container_width=True):
+                if st.button("Save Changes", key=f"save_{u['id']}", width="stretch"):
                     result = update_user(u["id"], {
                         "client_role": new_role,
                         "is_active": is_active,
@@ -147,7 +147,7 @@ def _render_store_management(client_id: str, admin_user: dict):
                 state = st.selectbox("State", [""] + US_STATES, key="new_store_state")
                 region = st.text_input("Region", placeholder="e.g., Nebraska")
 
-            if st.form_submit_button("Add Store", use_container_width=True):
+            if st.form_submit_button("Add Store", width="stretch"):
                 if not store_num or not name:
                     st.error("Store number and name are required.")
                 elif not phone or not phone.strip():
@@ -221,7 +221,7 @@ def _render_category_management(client_id: str):
             cat_order = st.number_input("Display Order", min_value=0, value=len(categories) + 1)
             req_serial = st.checkbox("Requires Serial Number")
 
-            if st.form_submit_button("Add Category", use_container_width=True):
+            if st.form_submit_button("Add Category", width="stretch"):
                 if not cat_name:
                     st.error("Category name is required.")
                 else:
@@ -301,7 +301,7 @@ def _render_urgency_management(client_id: str):
             urg_order = st.number_input("Display Order", min_value=0, value=len(levels) + 1)
             urg_sla = st.number_input("SLA Hours (target response time)", min_value=0, value=24)
 
-            if st.form_submit_button("Add Urgency Level", use_container_width=True):
+            if st.form_submit_button("Add Urgency Level", width="stretch"):
                 if not urg_name:
                     st.error("Level name is required.")
                 else:
@@ -375,7 +375,7 @@ def _render_approval_settings(client_id: str):
         step=100.0,
         key="new_threshold",
     )
-    if st.button("Update Threshold", use_container_width=True):
+    if st.button("Update Threshold", width="stretch"):
         try:
             sb = get_client()
             user = get_current_user()
@@ -413,7 +413,7 @@ def _render_approval_settings(client_id: str):
             )
             step_order = st.number_input("Step Order", min_value=1, value=len(config) + 1)
 
-            if st.form_submit_button("Add Step", use_container_width=True):
+            if st.form_submit_button("Add Step", width="stretch"):
                 try:
                     sb = get_client()
                     sb.table("approval_chain_config").insert({
@@ -485,7 +485,7 @@ def _render_equipment_options(client_id: str):
             eq_name = st.text_input("Equipment Name *", placeholder="e.g., Fryer, Grill, Ice Machine")
             eq_order = st.number_input("Display Order", min_value=0, value=len(options) + 1)
 
-            if st.form_submit_button("Add Equipment Option", use_container_width=True):
+            if st.form_submit_button("Add Equipment Option", width="stretch"):
                 if not eq_name:
                     st.error("Equipment name is required.")
                 elif eq_brand == "No brands found" or eq_category == "No categories found":

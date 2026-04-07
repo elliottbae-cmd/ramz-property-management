@@ -111,7 +111,7 @@ def _render_overview(client_id: str):
         .sort_values("Total Spend", ascending=False)
     )
     store_summary["Total Spend"] = store_summary["Total Spend"].apply(format_currency)
-    st.dataframe(store_summary, use_container_width=True)
+    st.dataframe(store_summary, width="stretch")
 
     # Chart: Spend by store
     if HAS_PLOTLY:
@@ -128,7 +128,7 @@ def _render_overview(client_id: str):
             title="Spend by Store",
         )
         fig.update_layout(height=max(300, len(chart_df) * 35))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         # Fallback to Streamlit chart
         chart_data = df.groupby("store_name")["actual_cost"].sum().reset_index()
@@ -145,12 +145,12 @@ def _render_overview(client_id: str):
     )
     year_summary.index = year_summary.index.astype(int)
     year_summary["Total Spend"] = year_summary["Total Spend"].apply(format_currency)
-    st.dataframe(year_summary, use_container_width=True)
+    st.dataframe(year_summary, width="stretch")
 
     # Export
     st.markdown("---")
     csv = df[["store_name", "status", "urgency", "actual_cost", "estimated_cost", "created_at"]].to_csv(index=False)
-    st.download_button("Export to CSV", csv, "client_spend_summary.csv", "text/csv", use_container_width=True)
+    st.download_button("Export to CSV", csv, "client_spend_summary.csv", "text/csv", width="stretch")
 
 
 def _render_store_detail(client_id: str):
@@ -213,7 +213,7 @@ def _render_store_detail(client_id: str):
                 urgency_df, values="actual_cost", names="urgency",
                 title="Spend by Urgency Level",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     # Export
     csv = df.to_csv(index=False)
@@ -222,7 +222,7 @@ def _render_store_detail(client_id: str):
         csv,
         f"store_{store.get('store_number', '')}_history.csv",
         "text/csv",
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -260,7 +260,7 @@ def _render_resolution_times(client_id: str):
     )
     cat_summary["Avg Hours"] = cat_summary["Avg Hours"].apply(lambda x: f"{x:.1f}")
     cat_summary["Median Hours"] = cat_summary["Median Hours"].apply(lambda x: f"{x:.1f}")
-    st.dataframe(cat_summary, use_container_width=True)
+    st.dataframe(cat_summary, width="stretch")
 
     # By urgency
     st.markdown("### By Urgency Level")
@@ -272,7 +272,7 @@ def _render_resolution_times(client_id: str):
     )
     urg_summary["Avg Hours"] = urg_summary["Avg Hours"].apply(lambda x: f"{x:.1f}")
     urg_summary["Median Hours"] = urg_summary["Median Hours"].apply(lambda x: f"{x:.1f}")
-    st.dataframe(urg_summary, use_container_width=True)
+    st.dataframe(urg_summary, width="stretch")
 
     # Chart
     if HAS_PLOTLY:
@@ -281,7 +281,7 @@ def _render_resolution_times(client_id: str):
             title="Distribution of Resolution Times (Hours)",
             labels={"resolution_hours": "Resolution Time (Hours)", "count": "Tickets"},
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def _render_urgency_breakdown(client_id: str):
@@ -308,7 +308,7 @@ def _render_urgency_breakdown(client_id: str):
             df, values="Count", names="Urgency",
             title="Tickets by Urgency Level",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # Bar chart
     if HAS_PLOTLY:
@@ -319,4 +319,4 @@ def _render_urgency_breakdown(client_id: str):
             df, x="Urgency", y="Count",
             title="Ticket Count by Urgency Level",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")

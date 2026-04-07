@@ -68,7 +68,7 @@ def render():
             </div>
             """, unsafe_allow_html=True)
         with col2:
-            if st.button("Review", key=f"review_{approval['id']}", use_container_width=True):
+            if st.button("Review", key=f"review_{approval['id']}", width="stretch"):
                 st.session_state["approval_ticket_id"] = ticket.get("id")
                 st.session_state["approval_record_id"] = approval["id"]
                 st.rerun()
@@ -109,7 +109,7 @@ def _render_approval_detail(ticket_id: str, user: dict):
     client_id = get_effective_client_id()
 
     with col_approve:
-        if st.button("Approve", type="primary", use_container_width=True):
+        if st.button("Approve", type="primary", width="stretch"):
             result = approve_ticket(approval_id, user["id"], notes=notes or None)
             if result:
                 # Check if all approvals are done
@@ -128,7 +128,7 @@ def _render_approval_detail(ticket_id: str, user: dict):
                 st.error("Failed to approve.")
 
     with col_reject:
-        if st.button("Reject", use_container_width=True):
+        if st.button("Reject", width="stretch"):
             result = reject_ticket(approval_id, user["id"], notes=notes or None)
             if result:
                 update_ticket(ticket_id, {"status": "rejected"})

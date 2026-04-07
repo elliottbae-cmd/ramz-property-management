@@ -97,7 +97,7 @@ def render():
             </div>
             """, unsafe_allow_html=True)
         with col_action:
-            if st.button("Details", key=f"contractor_{c['id']}", use_container_width=True):
+            if st.button("Details", key=f"contractor_{c['id']}", width="stretch"):
                 st.session_state["selected_contractor_id"] = c["id"]
                 st.rerun()
 
@@ -123,7 +123,7 @@ def _render_add_contractor_form():
         is_preferred = st.checkbox("Preferred Vendor")
         notes = st.text_area("Notes")
 
-        if st.form_submit_button("Add Contractor", use_container_width=True):
+        if st.form_submit_button("Add Contractor", width="stretch"):
             if not company or not trades:
                 st.error("Company name and at least one trade are required.")
             else:
@@ -222,7 +222,7 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
                 )
                 notes = st.text_area("Notes", value=contractor.get("notes", "") or "")
 
-                if st.form_submit_button("Save Changes", use_container_width=True):
+                if st.form_submit_button("Save Changes", width="stretch"):
                     city_list = [c.strip() for c in cities_val.split(",") if c.strip()] if cities_val else []
                     zip_list = [z.strip() for z in zips_val.split(",") if z.strip()] if zips_val else []
                     result = update_contractor(contractor_id, {
@@ -250,7 +250,7 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
                     "Reason for deactivation",
                     placeholder="e.g., poor quality, went out of business",
                 )
-                if st.button("Deactivate Contractor", use_container_width=True):
+                if st.button("Deactivate Contractor", width="stretch"):
                     update_data = {"is_active": False}
                     if reason:
                         update_data["notes"] = f"[DEACTIVATED] {reason}"
@@ -259,7 +259,7 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
                     st.rerun()
             else:
                 st.info("This contractor is currently inactive.")
-                if st.button("Reactivate Contractor", type="primary", use_container_width=True):
+                if st.button("Reactivate Contractor", type="primary", width="stretch"):
                     update_contractor(contractor_id, {"is_active": True})
                     st.success("Contractor reactivated!")
                     st.rerun()
@@ -290,7 +290,7 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
             rating = st.slider("Overall Rating", 1, 5, 3)
             comment = st.text_area("Comment", placeholder="How was your experience?")
 
-            if st.form_submit_button("Submit Review", use_container_width=True):
+            if st.form_submit_button("Submit Review", width="stretch"):
                 result = add_review({
                     "contractor_id": contractor_id,
                     "reviewed_by": user["id"],

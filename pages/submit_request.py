@@ -287,7 +287,7 @@ def render():
     # ---- Submit ----
     st.markdown("---")
 
-    if st.button("Submit Repair Request", type="primary", use_container_width=True):
+    if st.button("Submit Repair Request", type="primary", width="stretch"):
         # Validation
         errors = []
         if not selected_store_id:

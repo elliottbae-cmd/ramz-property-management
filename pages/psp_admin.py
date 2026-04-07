@@ -84,7 +84,7 @@ def _render_client_management(user: dict):
             logo_url = st.text_input("Logo URL (optional)", placeholder="https://...")
             tagline = st.text_input("Tagline (optional)", placeholder="e.g., Property Maintenance Portal")
 
-            if st.form_submit_button("Create Client", use_container_width=True):
+            if st.form_submit_button("Create Client", width="stretch"):
                 if not client_name or not client_slug:
                     st.error("Client name and slug are required.")
                 else:
@@ -174,7 +174,7 @@ def _render_client_management(user: dict):
                         key=f"cl_{client['id']}",
                     )
 
-                    if st.form_submit_button("Save Changes", use_container_width=True):
+                    if st.form_submit_button("Save Changes", width="stretch"):
                         try:
                             sb = get_client()
                             sb.table("clients").update({
@@ -303,7 +303,7 @@ def _render_user_management(user: dict):
             with col2:
                 is_active = st.checkbox("Active", value=u.get("is_active", True), key=f"active_{u['id']}")
 
-            if st.button("Save Changes", key=f"save_{u['id']}", use_container_width=True):
+            if st.button("Save Changes", key=f"save_{u['id']}", width="stretch"):
                 update_data = {"is_active": is_active}
                 if tier == "psp":
                     update_data["psp_role"] = new_role
@@ -382,7 +382,7 @@ def _render_create_user(admin_user: dict):
             else:
                 store_id = None
 
-        if st.form_submit_button("Create User", type="primary", use_container_width=True):
+        if st.form_submit_button("Create User", type="primary", width="stretch"):
             # Validation
             errors = []
             if not email:
@@ -546,14 +546,14 @@ def _render_bulk_import(admin_user: dict):
     with st.expander("Preview valid rows"):
         st.dataframe(
             valid[["full_name", "email", "store_number", "role"]].reset_index(drop=True),
-            use_container_width=True,
+            width="stretch",
         )
 
     if not default_password or len(default_password) < 6:
         st.warning("Enter a default password (min 6 characters) before importing.")
         return
 
-    if st.button(f"Import {len(valid)} Users", type="primary", use_container_width=True):
+    if st.button(f"Import {len(valid)} Users", type="primary", width="stretch"):
         try:
             admin_sb = get_admin_client()
         except RuntimeError as e:
@@ -737,7 +737,7 @@ def _render_store_assignments(admin_user: dict):
 
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("Save Assignments", key=f"sa_save_{u['id']}", type="primary", use_container_width=True):
+                if st.button("Save Assignments", key=f"sa_save_{u['id']}", type="primary", width="stretch"):
                     try:
                         sb = get_client()
 
@@ -759,7 +759,7 @@ def _render_store_assignments(admin_user: dict):
                         st.error(f"Failed to update: {e}")
 
             with col2:
-                if st.button("Clear All", key=f"sa_clear_{u['id']}", use_container_width=True):
+                if st.button("Clear All", key=f"sa_clear_{u['id']}", width="stretch"):
                     try:
                         sb = get_client()
                         sb.table("user_stores").delete().eq("user_id", u["id"]).execute()

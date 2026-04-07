@@ -240,9 +240,9 @@ def render_logo():
     logo_url = brand.get("logo_url")
 
     if logo_url:
-        st.sidebar.image(logo_url, use_container_width=True)
+        st.sidebar.image(logo_url, width="stretch")
     elif os.path.exists(_LOGO_PATH):
-        st.sidebar.image(_LOGO_PATH, use_container_width=True)
+        st.sidebar.image(_LOGO_PATH, width="stretch")
     else:
         primary = brand["primary_color"]
         st.sidebar.markdown(f"""

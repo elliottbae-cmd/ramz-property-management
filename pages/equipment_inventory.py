@@ -541,7 +541,7 @@ def _render_add_equipment_form(stores: list[dict], client_id: str):
                 )
                 add_notes = st.text_area("Notes", placeholder="Any additional details...", height=80)
 
-            submitted = st.form_submit_button("Add Equipment", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("Add Equipment", type="primary", width="stretch")
 
             if submitted:
                 if not add_name or not add_name.strip():
@@ -617,7 +617,7 @@ def _render_edit_equipment_form(item: dict):
                     "Notes", value=item.get("notes", ""), key=f"{form_key}_notes", height=80
                 )
 
-            save = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
+            save = st.form_submit_button("Save Changes", type="primary", width="stretch")
 
             if save:
                 updates = {}

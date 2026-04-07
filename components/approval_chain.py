@@ -77,13 +77,13 @@ def render_approval_actions(ticket_id: str, ticket_status: str):
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Approve", key=f"approve_{ticket_id}", type="primary", use_container_width=True):
+        if st.button("Approve", key=f"approve_{ticket_id}", type="primary", width="stretch"):
             approve_ticket(my_approval["id"], user["id"], notes=notes or None)
             _check_all_approved(ticket_id)
             st.success("Approved!")
             st.rerun()
     with col2:
-        if st.button("Reject", key=f"reject_{ticket_id}", use_container_width=True):
+        if st.button("Reject", key=f"reject_{ticket_id}", width="stretch"):
             reject_ticket(my_approval["id"], user["id"], notes=notes or None)
             update_ticket(ticket_id, {"status": "rejected"})
             st.error("Rejected.")

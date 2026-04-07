@@ -220,7 +220,7 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
         # Session state key for AI results
         ai_key = f"wr_ai_result_{ticket_id}"
 
-        if st.button("🔍 Run AI Warranty Check", key=f"wr_ai_btn_{ticket_id}", type="primary", use_container_width=True):
+        if st.button("🔍 Run AI Warranty Check", key=f"wr_ai_btn_{ticket_id}", type="primary", width="stretch"):
             st.session_state[expand_key] = True  # Keep expanded
             equipment_data = {
                 "equipment_name": equip_name,
@@ -288,7 +288,7 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
             "Complete Warranty Review",
             key=f"wr_complete_{ticket_id}",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         ):
             st.session_state[expand_key] = True  # Keep expanded during processing
             try:

@@ -58,7 +58,7 @@ def render_login_page():
             email = st.text_input("Email", placeholder="your.email@company.com")
             password = st.text_input("Password", type="password")
             remember = st.checkbox("Remember me", value=True)
-            submitted = st.form_submit_button("Sign In", use_container_width=True)
+            submitted = st.form_submit_button("Sign In", width="stretch")
 
             if submitted:
                 if not email or not password:
@@ -90,7 +90,7 @@ def render_login_page():
                 help="Minimum 6 characters",
             )
             confirm_password = st.text_input("Confirm Password", type="password")
-            submitted = st.form_submit_button("Create Account", use_container_width=True)
+            submitted = st.form_submit_button("Create Account", width="stretch")
 
             if submitted:
                 if not new_name or not new_email or not new_password:
@@ -179,6 +179,6 @@ def render_user_sidebar():
         st.sidebar.markdown(f"**{name_display}**")
     st.sidebar.caption(role_label)
 
-    if st.sidebar.button("Sign Out", use_container_width=True):
+    if st.sidebar.button("Sign Out", width="stretch"):
         sign_out()
         st.rerun()

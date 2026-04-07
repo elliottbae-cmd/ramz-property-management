@@ -194,7 +194,7 @@ def _render_ticket_detail_view(ticket_id: str, user: dict):
     st.markdown("---")
     st.markdown("**Add a Comment**")
     new_comment = st.text_area("Comment", key="new_comment", placeholder="Add an update or note...")
-    if st.button("Post Comment", use_container_width=True):
+    if st.button("Post Comment", width="stretch"):
         if new_comment and new_comment.strip():
             result = add_comment(ticket_id, user["id"], new_comment.strip())
             if result:
@@ -209,7 +209,7 @@ def _render_ticket_detail_view(ticket_id: str, user: dict):
     st.markdown("---")
     st.markdown("**Add More Photos**")
     additional_photos = render_photo_upload(ticket_id)
-    if additional_photos and st.button("Upload Photos", use_container_width=True):
+    if additional_photos and st.button("Upload Photos", width="stretch"):
         save_photos(additional_photos, ticket_id)
         st.success("Photos uploaded!")
         st.rerun()

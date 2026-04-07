@@ -77,7 +77,7 @@ def render_photo_upload(ticket_id: str = None):
         cols = st.columns(min(len(uploaded_files), 3))
         for i, file in enumerate(uploaded_files):
             with cols[i % 3]:
-                st.image(file, caption=file.name, use_container_width=True)
+                st.image(file, caption=file.name, width="stretch")
 
     return uploaded_files
 

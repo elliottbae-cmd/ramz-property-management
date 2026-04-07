@@ -45,7 +45,7 @@ def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str 
     """, unsafe_allow_html=True)
 
     if on_click_key:
-        if st.button("View Details", key=on_click_key, use_container_width=True):
+        if st.button("View Details", key=on_click_key, width="stretch"):
             st.session_state["selected_ticket_id"] = ticket["id"]
             st.rerun()
 
@@ -97,7 +97,7 @@ def render_ticket_detail(ticket: dict, photos: list = None, comments: list = Non
         cols = st.columns(min(len(photos), 3))
         for i, photo in enumerate(photos):
             with cols[i % 3]:
-                st.image(photo["photo_url"], use_container_width=True)
+                st.image(photo["photo_url"], width="stretch")
 
     # Approval chain
     if approvals:

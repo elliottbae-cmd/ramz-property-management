@@ -235,7 +235,7 @@ def render():
     col_dry, col_import = st.columns(2)
 
     with col_dry:
-        if st.button("🔍 Dry Run (preview without saving)", use_container_width=True):
+        if st.button("🔍 Dry Run (preview without saving)", width="stretch"):
             with st.spinner("Validating..."):
                 dry_result = import_to_supabase(
                     parsed=parsed,
@@ -251,7 +251,7 @@ def render():
         if st.button(
             "✅ Import to Database",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=not confirm,
         ):
             with st.spinner("Importing equipment, warranties, and service agents..."):
