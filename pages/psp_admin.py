@@ -31,8 +31,8 @@ def render():
 
     require_permission(can_access_psp_admin, "PSP admin access required.")
 
-    tab_clients, tab_users, tab_create_user, tab_bulk, tab_audit = st.tabs(
-        ["Clients", "Users", "Create User", "Bulk Import", "Audit Log"]
+    tab_clients, tab_users, tab_create_user, tab_bulk, tab_stores, tab_audit = st.tabs(
+        ["Clients", "Users", "Create User", "Bulk Import", "Store Assignments", "Audit Log"]
     )
 
     with tab_clients:
@@ -46,6 +46,9 @@ def render():
 
     with tab_bulk:
         _render_bulk_import(user)
+
+    with tab_stores:
+        _render_store_assignments(user)
 
     with tab_audit:
         _render_audit_log(user)
@@ -624,6 +627,122 @@ def _render_bulk_import(admin_user: dict):
             st.error(f"❌ {len(results['errors'])} errors:")
             for e in results["errors"]:
                 st.caption(f"  • {e}")
+
+
+# ------------------------------------------------------------------
+# Store Assignments
+# ------------------------------------------------------------------
+
+def _render_store_assignments(admin_user: dict):
+    st.markdown("### Store Assignments")
+    st.caption("Manage which stores each DM/DOO oversees. GMs are always tied to a single store.")
+
+    clients = get_all_clients()
+    if not clients:
+        st.warning("No clients found.")
+        return
+
+    client_options = {c["id"]: c["name"] for c in clients}
+    client_id = st.selectbox(
+        "Client",
+        list(client_options.keys()),
+        format_func=lambda x: client_options[x],
+        key="sa_client",
+    )
+
+    # Load DM/DOO/VP users for this client
+    all_users = get_users_for_client(client_id, active_only=True)
+    assignable_roles = {"dm", "doo", "vp", "admin", "coo"}
+    mgr_users = [u for u in all_users if u.get("client_role") in assignable_roles]
+
+    if not mgr_users:
+        st.info("No DM/DOO/VP users found for this client. Create users first.")
+        return
+
+    # Load all stores for this client
+    stores = get_stores(client_id)
+    if not stores:
+        st.info("No stores found for this client.")
+        return
+
+    store_map = {s["id"]: f"{s['store_number']} — {s['name']}" for s in stores}
+
+    st.markdown("---")
+
+    for u in sorted(mgr_users, key=lambda x: x.get("full_name", "")):
+        role_label = CLIENT_ROLE_LABELS.get(u.get("client_role", ""), u.get("client_role", ""))
+        with st.expander(f"{u['full_name']} ({role_label})"):
+
+            # Load current store assignments
+            try:
+                sb = get_client()
+                result = (
+                    sb.table("user_stores")
+                    .select("store_id")
+                    .eq("user_id", u["id"])
+                    .execute()
+                )
+                current_store_ids = [row["store_id"] for row in (result.data or [])]
+            except Exception:
+                current_store_ids = []
+
+            # Also include primary store_id from users table
+            primary_store_id = u.get("store_id")
+            if primary_store_id and primary_store_id not in current_store_ids:
+                current_store_ids.append(primary_store_id)
+
+            # Show current assignments
+            if current_store_ids:
+                st.caption(f"Currently assigned to {len(current_store_ids)} store(s):")
+                for sid in current_store_ids:
+                    st.markdown(f"  • {store_map.get(sid, sid)}")
+            else:
+                st.caption("No stores assigned yet.")
+
+            st.markdown("**Update store assignments:**")
+
+            # Multiselect for stores
+            selected_ids = st.multiselect(
+                "Assigned Stores",
+                options=list(store_map.keys()),
+                default=[sid for sid in current_store_ids if sid in store_map],
+                format_func=lambda x: store_map[x],
+                key=f"sa_stores_{u['id']}",
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Save Assignments", key=f"sa_save_{u['id']}", type="primary", use_container_width=True):
+                    try:
+                        sb = get_client()
+
+                        # Remove all existing user_stores entries for this user
+                        sb.table("user_stores").delete().eq("user_id", u["id"]).execute()
+
+                        # Re-insert selected stores
+                        if selected_ids:
+                            rows = [{"user_id": u["id"], "store_id": sid} for sid in selected_ids]
+                            sb.table("user_stores").insert(rows).execute()
+
+                            # Update primary store_id to first selected store if not already set
+                            if not primary_store_id and selected_ids:
+                                update_user(u["id"], {"store_id": selected_ids[0]})
+
+                        st.success(f"Updated — {u['full_name']} now assigned to {len(selected_ids)} store(s).")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to update: {e}")
+
+            with col2:
+                if st.button("Clear All", key=f"sa_clear_{u['id']}", use_container_width=True):
+                    try:
+                        sb = get_client()
+                        sb.table("user_stores").delete().eq("user_id", u["id"]).execute()
+                        update_user(u["id"], {"store_id": None})
+                        st.success(f"Cleared all store assignments for {u['full_name']}.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to clear: {e}")
 
 
 # ------------------------------------------------------------------
