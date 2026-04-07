@@ -11,7 +11,7 @@ from database.stores import get_stores_for_user
 from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment, update_ticket
 from database.contractors import get_contractors
 from utils.contractor_matcher import find_matching_contractors
-from database.work_orders import create_work_order
+from database.work_orders import create_work_order, get_work_orders
 from database.audit import log_action
 from database.approvals import initiate_approval_chain
 from components.ticket_card import render_ticket_card, render_ticket_detail
@@ -136,6 +136,73 @@ def render():
             if st.button("Manage", key=f"manage_{ticket['id']}", width="stretch"):
                 st.session_state["dashboard_ticket_id"] = ticket["id"]
                 st.rerun()
+
+
+def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: dict):
+    """Render the contractor selection and work order issue form."""
+    store = ticket.get("stores") or {}
+    category = ticket.get("category", "")
+    equipment_name = (ticket.get("equipment") or {}).get("name", "")
+    matched = find_matching_contractors(store, category, equipment_name=equipment_name)
+
+    if matched:
+        match_labels = {
+            "city": "📍 city match",
+            "zip": "📍 zip match",
+            "state": "🗺 state match",
+            "exception": "✅ exception",
+        }
+        contractor_options = {
+            c["id"]: (
+                f"{'★ ' if c.get('is_preferred') else ''}"
+                f"{c['company_name']} "
+                f"({c.get('avg_rating', 0):.1f}/5 · {match_labels.get(match_type, match_type)})"
+            )
+            for c, match_type in matched
+        }
+        match_term = equipment_name or category
+        st.caption(f"{len(matched)} contractor(s) matched for **{match_term}** at **{store.get('city', '')}, {store.get('state', '')}**")
+    else:
+        all_contractors = get_contractors({"active_only": True})
+        if all_contractors:
+            st.warning(
+                f"No contractors matched **{equipment_name or category}** "
+                f"at **{store.get('city', '')}, {store.get('state', '')}**. "
+                "Showing all active contractors — consider adding a matched contractor in the Contractor Directory."
+            )
+            contractor_options = {
+                c["id"]: f"{'★ ' if c.get('is_preferred') else ''}{c['company_name']} ({c.get('avg_rating', 0):.1f}/5)"
+                for c in all_contractors
+            }
+        else:
+            st.info("No contractors found. Add contractors in the Contractor Directory.")
+            return
+
+    selected_contractor = st.selectbox(
+        "Select Contractor",
+        options=list(contractor_options.keys()),
+        format_func=lambda x: contractor_options[x],
+        key=f"wo_contractor_{ticket_id}",
+    )
+    wo_amount = st.number_input("Work Order Amount ($)", min_value=0.0, step=50.0, key=f"wo_amount_{ticket_id}")
+    wo_notes = st.text_area("Notes", key=f"wo_notes_{ticket_id}", placeholder="Special instructions for the contractor...")
+
+    if st.button("Issue Work Order", type="primary", width="stretch", key=f"wo_submit_{ticket_id}"):
+        wo = create_work_order({
+            "ticket_id": ticket_id,
+            "client_id": client_id,
+            "contractor_id": selected_contractor,
+            "amount": wo_amount,
+            "notes": wo_notes or None,
+        })
+        if wo:
+            update_ticket(ticket_id, {"status": "in_progress"})
+            log_action(client_id, user["id"], "create", "work_order", wo["id"],
+                       {"ticket_id": ticket_id, "contractor_id": selected_contractor})
+            st.success("Work order issued!")
+            st.rerun()
+        else:
+            st.error("Failed to create work order.")
 
 
 def _render_management_view(ticket_id: str, user: dict, client_id: str):
@@ -316,72 +383,30 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
     with tab_workorder:
         st.markdown("**Issue Work Order to Contractor**")
 
-        # Get store info for geo + trade matching
-        store = ticket.get("stores") or {}
-        category = ticket.get("category", "")
-        equipment_name = (ticket.get("equipment") or {}).get("name", "")
-        matched = find_matching_contractors(store, category, equipment_name=equipment_name)
-
-        if matched:
-            # Build label: preferred star, name, rating, match type
-            match_labels = {
-                "city": "📍 city match",
-                "zip": "📍 zip match",
-                "state": "🗺 state match",
-                "exception": "✅ exception",
-            }
-            contractor_options = {
-                c["id"]: (
-                    f"{'★ ' if c.get('is_preferred') else ''}"
-                    f"{c['company_name']} "
-                    f"({c.get('avg_rating', 0):.1f}/5 · {match_labels.get(match_type, match_type)})"
+        # Check for existing work orders on this ticket
+        existing_wos = get_work_orders(client_id, ticket_id=ticket_id)
+        if existing_wos:
+            for wo in existing_wos:
+                contractor = wo.get("contractors") or {}
+                st.markdown(
+                    f'<div style="background:#F0FFF4; border:1px solid #27AE60; '
+                    f'border-radius:8px; padding:12px 16px; margin-bottom:0.75rem;">'
+                    f'<strong>Work Order Issued</strong><br>'
+                    f'Contractor: <strong>{contractor.get("company_name", "N/A")}</strong>'
+                    f'{(" · " + contractor.get("phone")) if contractor.get("phone") else ""}<br>'
+                    f'Amount: <strong>${wo.get("amount") or 0:,.2f}</strong> · '
+                    f'Status: <strong>{wo.get("status", "").replace("_", " ").title()}</strong> · '
+                    f'Issued: {(wo.get("issued_at") or "")[:10]}'
+                    f'{("<br>Notes: " + wo["notes"]) if wo.get("notes") else ""}'
+                    f'</div>',
+                    unsafe_allow_html=True,
                 )
-                for c, match_type in matched
-            }
-            match_term = equipment_name or category
-            st.caption(f"{len(matched)} contractor(s) matched for **{match_term}** at **{store.get('city', '')}, {store.get('state', '')}**")
-        else:
-            # No geo/trade match — fall back to all active contractors with a warning
-            all_contractors = get_contractors({"active_only": True})
-            if all_contractors:
-                st.warning(
-                    f"No contractors in the directory match **{category}** "
-                    f"at **{store.get('city', '')}, {store.get('state', '')}**. "
-                    "Showing all active contractors — consider adding a matched contractor in the Contractor Directory."
-                )
-                contractor_options = {
-                    c["id"]: f"{'★ ' if c.get('is_preferred') else ''}{c['company_name']} ({c.get('avg_rating', 0):.1f}/5)"
-                    for c in all_contractors
-                }
-            else:
-                st.info("No contractors found. Add contractors in the Contractor Directory.")
-                contractor_options = {}
+            with st.expander("⚠️ Issue an additional work order", expanded=False):
+                st.caption("Only do this if a second contractor is needed for the same ticket.")
+                _render_work_order_form(ticket, ticket_id, client_id, user)
+            return
 
-        if contractor_options:
-            selected_contractor = st.selectbox(
-                "Select Contractor",
-                options=list(contractor_options.keys()),
-                format_func=lambda x: contractor_options[x],
-            )
-            wo_amount = st.number_input("Work Order Amount ($)", min_value=0.0, step=50.0, key="wo_amount")
-            wo_notes = st.text_area("Notes", key="wo_notes", placeholder="Special instructions for the contractor...")
-
-            if st.button("Issue Work Order", type="primary", width="stretch"):
-                wo = create_work_order({
-                    "ticket_id": ticket_id,
-                    "client_id": client_id,
-                    "contractor_id": selected_contractor,
-                    "amount": wo_amount,
-                    "notes": wo_notes or None,
-                })
-                if wo:
-                    update_ticket(ticket_id, {"status": "in_progress"})
-                    log_action(client_id, user["id"], "create", "work_order", wo["id"],
-                               {"ticket_id": ticket_id, "contractor_id": selected_contractor})
-                    st.success("Work order issued!")
-                    st.rerun()
-                else:
-                    st.error("Failed to create work order.")
+        _render_work_order_form(ticket, ticket_id, client_id, user)
 
     with tab_comment:
         new_comment = st.text_area(
