@@ -666,34 +666,47 @@ def _render_store_assignments(admin_user: dict):
         return
 
     store_map = {s["id"]: f"{s['store_number']} — {s['name']}" for s in stores}
+    user_name_map = {u["id"]: u["full_name"] for u in mgr_users}
+
+    # Build a map of store_id → list of user names already assigned to it
+    # Loaded once for all users — used to show overlap warnings
+    try:
+        sb = get_client()
+        all_mgr_ids = [u["id"] for u in mgr_users]
+        all_assignments = (
+            sb.table("user_stores")
+            .select("user_id, store_id")
+            .in_("user_id", all_mgr_ids)
+            .execute()
+        )
+        # store_id → [user_names]
+        store_owners: dict[str, list[str]] = {}
+        for row in (all_assignments.data or []):
+            sid = row["store_id"]
+            uname = user_name_map.get(row["user_id"], "Unknown")
+            store_owners.setdefault(sid, []).append(uname)
+    except Exception:
+        store_owners = {}
 
     st.markdown("---")
 
     for u in sorted(mgr_users, key=lambda x: x.get("full_name", "")):
         role_label = CLIENT_ROLE_LABELS.get(u.get("client_role", ""), u.get("client_role", ""))
-        with st.expander(f"{u['full_name']} ({role_label})"):
 
-            # Load current store assignments
-            try:
-                sb = get_client()
-                result = (
-                    sb.table("user_stores")
-                    .select("store_id")
-                    .eq("user_id", u["id"])
-                    .execute()
-                )
-                current_store_ids = [row["store_id"] for row in (result.data or [])]
-            except Exception:
-                current_store_ids = []
+        # Count their current assignments for the expander label
+        current_store_ids = [
+            row["store_id"]
+            for row in (all_assignments.data or [])
+            if row["user_id"] == u["id"]
+        ]
+        primary_store_id = u.get("store_id")
+        if primary_store_id and primary_store_id not in current_store_ids:
+            current_store_ids.append(primary_store_id)
 
-            # Also include primary store_id from users table
-            primary_store_id = u.get("store_id")
-            if primary_store_id and primary_store_id not in current_store_ids:
-                current_store_ids.append(primary_store_id)
+        with st.expander(f"{u['full_name']} ({role_label}) — {len(current_store_ids)} store(s)"):
 
             # Show current assignments
             if current_store_ids:
-                st.caption(f"Currently assigned to {len(current_store_ids)} store(s):")
                 for sid in current_store_ids:
                     st.markdown(f"  • {store_map.get(sid, sid)}")
             else:
@@ -710,6 +723,18 @@ def _render_store_assignments(admin_user: dict):
                 key=f"sa_stores_{u['id']}",
             )
 
+            # Overlap warnings — show if any selected store is assigned to someone else
+            for sid in selected_ids:
+                other_owners = [
+                    name for name in store_owners.get(sid, [])
+                    if name != u["full_name"]
+                ]
+                if other_owners:
+                    st.warning(
+                        f"⚠️ **{store_map.get(sid, sid)}** is already assigned to: "
+                        f"{', '.join(other_owners)}"
+                    )
+
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("Save Assignments", key=f"sa_save_{u['id']}", type="primary", use_container_width=True):
@@ -724,7 +749,7 @@ def _render_store_assignments(admin_user: dict):
                             rows = [{"user_id": u["id"], "store_id": sid} for sid in selected_ids]
                             sb.table("user_stores").insert(rows).execute()
 
-                            # Update primary store_id to first selected store if not already set
+                            # Update primary store_id if not already set
                             if not primary_store_id and selected_ids:
                                 update_user(u["id"], {"store_id": selected_ids[0]})
 
