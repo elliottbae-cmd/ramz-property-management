@@ -274,8 +274,22 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
             horizontal=True,
         )
 
-        # Pre-fill from AI results if available
+        # Pre-fill from AI results if available; fall back to DB warranty record
         ai_data = (ai_result or {}).get("ai_result") or {}
+        if not ai_data:
+            db_warranty = (ai_result or {}).get("db_warranty") or {}
+            if db_warranty:
+                ai_data = {
+                    "manufacturer_contact": (
+                        db_warranty.get("contact_phone") or
+                        db_warranty.get("contact_email") or ""
+                    ),
+                    "warranty_period": db_warranty.get("coverage_description", ""),
+                    "coverage_type": "",
+                    "estimated_expiry": db_warranty.get("end_date", ""),
+                    "source_urls": [],
+                    "claim_process": "",
+                }
 
         if decision == "Under Warranty":
             _render_under_warranty_form(ticket_id, ai_data, manufacturer=manufacturer or "")
