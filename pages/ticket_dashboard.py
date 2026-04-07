@@ -352,6 +352,8 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
         if st.button("Save Bid & Request Approval", type="primary", width="stretch", key="save_bid"):
             update_ticket(ticket_id, {"contractor_bid": new_bid, "estimated_cost": new_bid})
             if new_bid > 0:
+                # Clear cache before checking to avoid stale results creating duplicate chains
+                get_ticket_approvals.clear()
                 existing = get_ticket_approvals(ticket_id)
                 if not existing:
                     chain = initiate_approval_chain(ticket_id, client_id, new_bid)
