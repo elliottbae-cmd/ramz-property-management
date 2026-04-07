@@ -29,7 +29,7 @@ def get_ticket(ticket_id: str) -> dict | None:
         sb = get_client()
         result = (
             sb.table("tickets")
-            .select("*, stores(store_number, name, phone, client_id), equipment(name, serial_number)")
+            .select("*, stores(store_number, name, phone, city, state, client_id), equipment(name, serial_number, category)")
             .eq("id", ticket_id)
             .single()
             .execute()

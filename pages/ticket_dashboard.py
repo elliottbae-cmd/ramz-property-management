@@ -319,7 +319,8 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
         # Get store info for geo + trade matching
         store = ticket.get("stores") or {}
         category = ticket.get("category", "")
-        matched = find_matching_contractors(store, category)
+        equipment_name = (ticket.get("equipment") or {}).get("name", "")
+        matched = find_matching_contractors(store, category, equipment_name=equipment_name)
 
         if matched:
             # Build label: preferred star, name, rating, match type
@@ -337,7 +338,8 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                 )
                 for c, match_type in matched
             }
-            st.caption(f"{len(matched)} contractor(s) matched for **{category}** at **{store.get('city', '')}, {store.get('state', '')}**")
+            match_term = equipment_name or category
+            st.caption(f"{len(matched)} contractor(s) matched for **{match_term}** at **{store.get('city', '')}, {store.get('state', '')}**")
         else:
             # No geo/trade match — fall back to all active contractors with a warning
             all_contractors = get_contractors({"active_only": True})

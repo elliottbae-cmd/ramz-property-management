@@ -5,27 +5,35 @@ from database.supabase_client import get_client
 from database.tenant import get_effective_client_id
 
 
-def find_matching_contractors(store: dict, category: str) -> list[tuple[dict, str]]:
+def find_matching_contractors(
+    store: dict,
+    category: str,
+    equipment_name: str = "",
+) -> list[tuple[dict, str]]:
     """Find contractors that match a store's location and repair category.
 
     Parameters
     ----------
     store : dict
-        Store record with city, state fields.
+        Store record with city, state, zip_code fields.
     category : str
-        Repair category (mapped to contractor trades).
+        Repair category (e.g. "BOH (Back of House)").
+    equipment_name : str, optional
+        Specific equipment name (e.g. "Fryer", "Walk-in Cooler"). When
+        provided this is used as the primary trade match term; category
+        is used as a fallback so we never return zero results purely due
+        to a missing equipment name.
 
     Returns
     -------
     list of (contractor_dict, match_type) tuples sorted by:
         1. Preferred flag (preferred first)
         2. Rating (descending)
-        3. Geographic match quality (city > state > exception)
+        3. Geographic match quality (city > zip > state > exception)
     """
     sb = get_client()
 
     try:
-        # Get all active contractors
         result = (
             sb.table("contractors")
             .select("*")
@@ -36,11 +44,13 @@ def find_matching_contractors(store: dict, category: str) -> list[tuple[dict, st
     except Exception:
         return []
 
-    # Filter by trade type matching the category
-    trade_matched = [
-        c for c in contractors
-        if _trade_matches_category(c.get("trades", []), category)
-    ]
+    # Match on equipment name first (more specific), fall back to category
+    def _matches(trades):
+        if equipment_name and _trade_matches_category(trades, equipment_name):
+            return True
+        return _trade_matches_category(trades, category)
+
+    trade_matched = [c for c in contractors if _matches(c.get("trades", []))]
 
     store_city = (store.get("city") or "").strip().lower()
     store_state = (store.get("state") or "").strip().upper()
@@ -113,19 +123,33 @@ def _trade_matches_category(trades: list, category: str) -> bool:
         if trade_lower in category_lower or category_lower in trade_lower:
             return True
 
-        # Keyword mapping — expand as needed
+        # Keyword mapping — trade keyword → what it covers
         keyword_map = {
-            "boh": ["kitchen", "back of house", "boh", "cooking", "refrigeration"],
-            "foh": ["front of house", "foh", "dining", "counter"],
-            "hvac": ["hvac", "heating", "cooling", "air conditioning", "ac"],
-            "roof": ["roof", "roofing", "leak"],
-            "parking lot": ["parking", "lot", "asphalt", "striping"],
-            "building exterior": ["exterior", "facade", "siding", "building"],
-            "lighting": ["lighting", "light", "bulb", "fixture"],
-            "landscaping": ["landscaping", "lawn", "tree", "irrigation"],
-            "plumbing": ["plumbing", "pipe", "drain", "water", "toilet", "faucet"],
-            "electrical": ["electrical", "wiring", "outlet", "panel", "breaker"],
-            "signage": ["sign", "signage", "banner"],
+            # BOH cooking equipment
+            "cooking": ["fryer", "oven", "grill", "griddle", "broiler", "range", "steamer",
+                        "warmer", "hot holding", "cooking", "boh", "back of house", "kitchen"],
+            "refrigeration": ["walk-in", "cooler", "freezer", "refrigerator", "reach-in",
+                              "cold storage", "refrigeration", "ice cream", "custard"],
+            "ice": ["ice machine", "ice maker", "ice", "hoshizaki", "manitowoc", "scotsman"],
+            "warewashing": ["dishwasher", "dish machine", "warewash", "dish", "sanitizer"],
+            "beverage": ["beverage", "soda", "fountain", "coffee", "espresso", "tea"],
+            # FOH / building
+            "foh": ["front of house", "foh", "dining", "counter", "pos", "register"],
+            # Building systems
+            "hvac": ["hvac", "heating", "cooling", "air conditioning", "ac", "heat",
+                     "ventilation", "exhaust", "hood", "make-up air"],
+            "plumbing": ["plumbing", "pipe", "drain", "water", "toilet", "faucet",
+                         "grease trap", "sink", "leak", "sewer"],
+            "electrical": ["electrical", "wiring", "outlet", "panel", "breaker",
+                           "lighting", "light", "fixture", "bulb", "sign", "signage"],
+            # Exterior
+            "roofing": ["roof", "roofing", "leak", "membrane", "flashing"],
+            "parking lot": ["parking", "lot", "asphalt", "paving", "striping", "curb"],
+            "building exterior": ["exterior", "facade", "siding", "building", "window",
+                                  "door", "glass", "caulk"],
+            "landscaping": ["landscaping", "lawn", "tree", "irrigation", "sprinkler"],
+            # General
+            "general": ["general", "handyman", "maintenance", "repair"],
         }
 
         for trade_key, keywords in keyword_map.items():
