@@ -292,6 +292,10 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
                 }
 
         if decision == "Under Warranty":
+            # Pre-populate session state for form fields so Streamlit shows
+            # updated values after AI check runs (widgets cache their first value)
+            if ai_data:
+                _prefill_warranty_session_state(ticket_id, ai_data, manufacturer or "")
             _render_under_warranty_form(ticket_id, ai_data, manufacturer=manufacturer or "")
         elif decision == "Not Under Warranty":
             _render_not_under_warranty_form(ticket_id)
@@ -414,6 +418,39 @@ def _render_ai_results(result: dict, ticket_id: str):
 # ------------------------------------------------------------------
 # Decision sub-forms
 # ------------------------------------------------------------------
+
+def _prefill_warranty_session_state(ticket_id: str, ai_data: dict, manufacturer: str = ""):
+    """Pre-populate session state for warranty form widgets.
+
+    Streamlit caches the first value a widget sees. If the form was rendered
+    before the AI check ran (empty values), subsequent renders ignore the
+    updated value= argument. Setting session state explicitly before render
+    forces the widget to show the new value.
+    Only sets a key if it is currently empty/unset.
+    """
+    import streamlit as st
+
+    def _set_if_empty(key: str, value: str):
+        if not st.session_state.get(key):
+            st.session_state[key] = value
+
+    provider = manufacturer or ai_data.get("manufacturer_contact", "") or ""
+    _set_if_empty(f"wr_provider_{ticket_id}", provider[:100])
+
+    contact = ai_data.get("manufacturer_contact", "") or ""
+    _set_if_empty(f"wr_contact_{ticket_id}", contact)
+
+    urls = ai_data.get("source_urls") or []
+    _set_if_empty(f"wr_claim_url_{ticket_id}", urls[0] if urls else "")
+
+    if ai_data:
+        coverage = (
+            f"Period: {ai_data.get('warranty_period', 'N/A')}\n"
+            f"Coverage: {ai_data.get('coverage_type', 'N/A')}\n"
+            f"Expires: {ai_data.get('estimated_expiry', 'N/A')}"
+        )
+        _set_if_empty(f"wr_coverage_{ticket_id}", coverage)
+
 
 def _render_under_warranty_form(ticket_id: str, ai_data: dict, manufacturer: str = ""):
     """Render the 'Under Warranty' detail form with pre-filled AI data."""
