@@ -85,31 +85,54 @@ def initiate_approval_chain(ticket_id: str, client_id: str,
         return []
 
 
-def get_pending_approvals(user_id: str) -> list[dict]:
+def get_pending_approvals(user_id: str, client_id: str = None) -> list[dict]:
     """Return approval records waiting on this user.
 
-    Matches by the user's client_role against the approval role_required.
+    - PSP users: returns ALL pending approvals for the given client_id
+    - Client users: returns only approvals matching their client_role
     """
     try:
         sb = get_client()
-        # First determine the user's role
-        user = (
+        # Look up the user's tier and role
+        user_result = (
             sb.table("users")
-            .select("client_id, client_role")
+            .select("client_id, client_role, user_tier")
             .eq("id", user_id)
             .single()
             .execute()
         )
-        if not user.data or not user.data.get("client_role"):
+        if not user_result.data:
             return []
 
-        role = user.data["client_role"]
-        client_id = user.data["client_id"]
+        user_data = user_result.data
+        user_tier = user_data.get("user_tier", "")
+
+        # PSP users see all pending approvals for the active client
+        if user_tier == "psp":
+            if not client_id:
+                return []
+            result = (
+                sb.table("approvals")
+                .select("*, tickets(*, stores(store_number, name))")
+                .eq("client_id", client_id)
+                .eq("status", "pending")
+                .order("step_order")
+                .execute()
+            )
+            return result.data or []
+
+        # Client users see only approvals matching their role
+        role = user_data.get("client_role")
+        if not role:
+            return []
+        effective_client_id = client_id or user_data.get("client_id")
+        if not effective_client_id:
+            return []
 
         result = (
             sb.table("approvals")
             .select("*, tickets(*, stores(store_number, name))")
-            .eq("client_id", client_id)
+            .eq("client_id", effective_client_id)
             .eq("role_required", role)
             .eq("status", "pending")
             .order("step_order")

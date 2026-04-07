@@ -52,13 +52,7 @@ def render():
 
             st.caption(f"{len(submitted)} ticket(s)")
             for ticket in submitted:
-                if ticket.get("status") == "warranty_check":
-                    st.markdown(
-                        '<span style="background-color:#C4A04D; color:white; padding:2px 8px; '
-                        'border-radius:12px; font-size:0.75rem; font-weight:600;">'
-                        'UNDER WARRANTY REVIEW</span>',
-                        unsafe_allow_html=True,
-                    )
+                _render_status_stepper(ticket.get("status", ""))
                 render_ticket_card(ticket, on_click_key=f"view_submitted_{ticket['id']}")
 
     with tab_assigned:
@@ -69,6 +63,83 @@ def render():
             st.caption(f"{len(assigned)} ticket(s)")
             for ticket in assigned:
                 render_ticket_card(ticket, on_click_key=f"view_assigned_{ticket['id']}")
+
+
+def _render_status_stepper(status: str):
+    """Render a simple horizontal progress stepper showing where the ticket stands."""
+
+    steps = [
+        ("submitted",        "Submitted"),
+        ("warranty_check",   "Warranty Review"),
+        ("pending_approval", "Pending Approval"),
+        ("approved",         "Approved"),
+        ("in_progress",      "In Progress"),
+        ("completed",        "Completed"),
+    ]
+
+    # Map status to step index (0-based)
+    status_order = {s[0]: i for i, s in enumerate(steps)}
+    # Some statuses sit between named steps
+    extra_map = {
+        "warranty_reviewed": 2,
+        "rejected": None,
+        "closed": 5,
+    }
+
+    current_idx = status_order.get(status, extra_map.get(status, 0))
+    rejected = status == "rejected"
+
+    # Build HTML stepper
+    parts = []
+    for i, (_, label) in enumerate(steps):
+        if rejected:
+            color = "#F44336" if i == current_idx else "#E0E0E0"
+            text_color = "white" if i == current_idx else "#9E9E9E"
+            dot = "✕" if i == current_idx else str(i + 1)
+        elif current_idx is None:
+            color = "#E0E0E0"
+            text_color = "#9E9E9E"
+            dot = str(i + 1)
+        elif i < current_idx:
+            color = "#4CAF50"
+            text_color = "white"
+            dot = "✓"
+        elif i == current_idx:
+            color = "#C4A04D"
+            text_color = "white"
+            dot = str(i + 1)
+        else:
+            color = "#E0E0E0"
+            text_color = "#9E9E9E"
+            dot = str(i + 1)
+
+        parts.append(
+            f'<div style="display:flex;flex-direction:column;align-items:center;flex:1;">'
+            f'<div style="width:28px;height:28px;border-radius:50%;background:{color};'
+            f'color:{text_color};display:flex;align-items:center;justify-content:center;'
+            f'font-size:0.75rem;font-weight:700;">{dot}</div>'
+            f'<div style="font-size:0.65rem;color:#666;margin-top:4px;text-align:center;'
+            f'white-space:nowrap;">{label}</div>'
+            f'</div>'
+        )
+        # Connector line between steps
+        if i < len(steps) - 1:
+            line_color = "#4CAF50" if (current_idx is not None and i < current_idx) else "#E0E0E0"
+            parts.append(
+                f'<div style="flex:1;height:2px;background:{line_color};margin-top:14px;"></div>'
+            )
+
+    if rejected:
+        notice = '<div style="font-size:0.75rem;color:#F44336;text-align:center;margin-top:4px;">❌ Ticket Rejected</div>'
+    else:
+        notice = ""
+
+    html = (
+        f'<div style="display:flex;align-items:flex-start;padding:8px 0 4px 0;">'
+        + "".join(parts)
+        + f'</div>{notice}'
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def _render_ticket_detail_view(ticket_id: str, user: dict):

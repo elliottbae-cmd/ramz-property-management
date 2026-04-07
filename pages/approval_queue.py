@@ -31,8 +31,9 @@ def render():
         _render_approval_detail(st.session_state["approval_ticket_id"], user)
         return
 
-    # Get pending approvals for this user
-    pending = get_pending_approvals(user["id"])
+    # Get pending approvals — PSP users see all for active client
+    client_id = get_effective_client_id()
+    pending = get_pending_approvals(user["id"], client_id=client_id)
 
     if not pending:
         st.success("No pending approvals. You're all caught up!")
