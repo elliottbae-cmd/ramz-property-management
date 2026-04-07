@@ -278,7 +278,7 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
         ai_data = (ai_result or {}).get("ai_result") or {}
 
         if decision == "Under Warranty":
-            _render_under_warranty_form(ticket_id, ai_data)
+            _render_under_warranty_form(ticket_id, ai_data, manufacturer=manufacturer or "")
         elif decision == "Not Under Warranty":
             _render_not_under_warranty_form(ticket_id)
         else:
@@ -401,13 +401,15 @@ def _render_ai_results(result: dict, ticket_id: str):
 # Decision sub-forms
 # ------------------------------------------------------------------
 
-def _render_under_warranty_form(ticket_id: str, ai_data: dict):
+def _render_under_warranty_form(ticket_id: str, ai_data: dict, manufacturer: str = ""):
     """Render the 'Under Warranty' detail form with pre-filled AI data."""
     st.markdown("##### Warranty Details")
 
+    # Pre-fill provider from equipment manufacturer name, fall back to AI contact
+    provider_default = manufacturer or ai_data.get("manufacturer_contact", "") or ""
     warranty_provider = st.text_input(
         "Warranty Provider",
-        value=ai_data.get("manufacturer_contact", "")[:100] if ai_data.get("manufacturer_contact") else "",
+        value=provider_default[:100],
         key=f"wr_provider_{ticket_id}",
         help="Name of the warranty provider or manufacturer",
     )
