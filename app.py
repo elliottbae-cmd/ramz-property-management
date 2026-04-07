@@ -100,18 +100,40 @@ if tier == "psp":
 
 else:
     # ---- Client Navigation ----
-    if can_submit_tickets():
-        nav_items["Submit Repair Request"] = "submit_request"
-        nav_items["My Tickets"] = "my_tickets"
-
-    if can_approve():
-        nav_items["Approval Queue"] = "approval_queue"
-
-    if can_manage_tickets():
-        nav_items["Ticket Dashboard"] = "ticket_dashboard"
-        nav_items["Equipment Inventory"] = "equipment_inventory"
-
     role = user.get("client_role", "") if user else ""
+
+    # DM: Approval Queue first — that's their primary job
+    # GM: Submit Request first — that's their primary job
+    # VP/COO/Admin: Ticket Dashboard first — they oversee everything
+
+    if role == "dm":
+        if can_approve():
+            nav_items["Approval Queue"] = "approval_queue"
+        if can_submit_tickets():
+            nav_items["Submit Repair Request"] = "submit_request"
+            nav_items["My Tickets"] = "my_tickets"
+        if can_manage_tickets():
+            nav_items["Ticket Dashboard"] = "ticket_dashboard"
+            nav_items["Equipment Inventory"] = "equipment_inventory"
+    elif role == "gm":
+        if can_submit_tickets():
+            nav_items["Submit Repair Request"] = "submit_request"
+            nav_items["My Tickets"] = "my_tickets"
+        if can_approve():
+            nav_items["Approval Queue"] = "approval_queue"
+        if can_manage_tickets():
+            nav_items["Ticket Dashboard"] = "ticket_dashboard"
+            nav_items["Equipment Inventory"] = "equipment_inventory"
+    else:
+        # VP, COO, Admin
+        if can_manage_tickets():
+            nav_items["Ticket Dashboard"] = "ticket_dashboard"
+            nav_items["Equipment Inventory"] = "equipment_inventory"
+        if can_approve():
+            nav_items["Approval Queue"] = "approval_queue"
+        if can_submit_tickets():
+            nav_items["Submit Repair Request"] = "submit_request"
+            nav_items["My Tickets"] = "my_tickets"
 
     if role in ("admin", "coo", "vp"):
         nav_items["Contractor Directory"] = "contractor_directory"
