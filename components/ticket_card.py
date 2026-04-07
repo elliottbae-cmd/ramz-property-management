@@ -23,13 +23,17 @@ def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str 
         f'{store_phone}</a></span>'
         if store_phone and show_store else ""
     )
+    store_header_html = (
+        f'<span style="color:#757575; font-size:0.9rem; margin-left:0.6rem;">{store_label}</span>'
+        if store_label else ""
+    )
 
     st.markdown(f"""
     <div class="ticket-card" style="border-left-color: {urgency_color};">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
             <span>
                 <strong>#{ticket.get('ticket_number', 'N/A')}</strong>
-                {"<span style='color:#757575; font-size:0.9rem; margin-left:0.5rem;'>" + store_label + "</span>" if store_label else ""}
+                {store_header_html}
             </span>
             {status_badge(status)}
         </div>
