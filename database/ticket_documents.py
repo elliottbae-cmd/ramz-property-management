@@ -1,24 +1,14 @@
-"""Ticket document CRUD — estimates, invoices, and other attachments."""
+"""Ticket document storage — estimates, invoices, warranty docs, etc."""
 
-import uuid
 import streamlit as st
 from database.supabase_client import get_client
 
-STORAGE_BUCKET = "ticket-documents"
-
-
-def upload_document(file_bytes: bytes, file_name: str, ticket_id: str) -> str:
-    """Upload a document to Supabase Storage and return the public URL."""
-    sb = get_client()
-    path = f"{ticket_id}/{uuid.uuid4().hex}_{file_name}"
-    sb.storage.from_(STORAGE_BUCKET).upload(path, file_bytes, {"content-type": _mime_type(file_name)})
-    return sb.storage.from_(STORAGE_BUCKET).get_public_url(path)
+BUCKET = "ticket-documents"
 
 
 def _mime_type(filename: str) -> str:
-    """Return MIME type based on file extension."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    return {
+    mime_map = {
         "pdf": "application/pdf",
         "jpg": "image/jpeg",
         "jpeg": "image/jpeg",
@@ -27,7 +17,24 @@ def _mime_type(filename: str) -> str:
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "xls": "application/vnd.ms-excel",
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }.get(ext, "application/octet-stream")
+    }
+    return mime_map.get(ext, "application/octet-stream")
+
+
+def upload_document(file_bytes: bytes, file_name: str, ticket_id: str) -> str | None:
+    """Upload a file to Supabase Storage and return the public URL."""
+    try:
+        sb = get_client()
+        path = f"{ticket_id}/{file_name}"
+        sb.storage.from_(BUCKET).upload(
+            path,
+            file_bytes,
+            {"content-type": _mime_type(file_name), "upsert": "true"},
+        )
+        result = sb.storage.from_(BUCKET).get_public_url(path)
+        return result
+    except Exception:
+        return None
 
 
 def save_document(
@@ -37,11 +44,13 @@ def save_document(
     client_id: str,
     document_type: str,
     uploaded_by: str,
-    notes: str = None,
+    notes: str = "",
 ) -> dict | None:
-    """Upload file to storage and record metadata in ticket_documents table."""
+    """Upload file to storage and insert a record into ticket_documents."""
+    url = upload_document(file_bytes, file_name, ticket_id)
+    if not url:
+        return None
     try:
-        url = upload_document(file_bytes, file_name, ticket_id)
         sb = get_client()
         row = {
             "ticket_id": ticket_id,
@@ -51,12 +60,11 @@ def save_document(
             "file_url": url,
             "file_size_bytes": len(file_bytes),
             "uploaded_by": uploaded_by,
+            "notes": notes or None,
         }
-        if notes:
-            row["notes"] = notes
         result = sb.table("ticket_documents").insert(row).execute()
         return result.data[0] if result.data else None
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -78,7 +86,7 @@ def get_ticket_documents(ticket_id: str) -> list[dict]:
 
 
 def delete_document(doc_id: str) -> bool:
-    """Delete a document record (does not remove from storage)."""
+    """Delete a document record (does not remove storage file)."""
     try:
         sb = get_client()
         sb.table("ticket_documents").delete().eq("id", doc_id).execute()

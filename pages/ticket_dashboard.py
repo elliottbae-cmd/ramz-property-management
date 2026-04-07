@@ -417,9 +417,8 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
             with st.expander("⚠️ Issue an additional work order", expanded=False):
                 st.caption("Only do this if a second contractor is needed for the same ticket.")
                 _render_work_order_form(ticket, ticket_id, client_id, user)
-            return
-
-        _render_work_order_form(ticket, ticket_id, client_id, user)
+        else:
+            _render_work_order_form(ticket, ticket_id, client_id, user)
 
     with tab_comment:
         new_comment = st.text_area(
