@@ -27,7 +27,10 @@ def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str 
     st.markdown(f"""
     <div class="ticket-card" style="border-left-color: {urgency_color};">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-            <strong>#{ticket.get('ticket_number', 'N/A')}</strong>
+            <span>
+                <strong>#{ticket.get('ticket_number', 'N/A')}</strong>
+                {"<span style='color:#757575; font-size:0.9rem; margin-left:0.5rem;'>" + store_label + "</span>" if store_label else ""}
+            </span>
             {status_badge(status)}
         </div>
         <div style="font-size: 0.95rem; margin-bottom: 0.5rem;">
