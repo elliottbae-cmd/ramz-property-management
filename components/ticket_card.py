@@ -17,6 +17,12 @@ def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str 
     status_color = STATUS_COLORS.get(status, "#9E9E9E")
 
     store_label = f"{store.get('store_number', '')} - {store.get('name', '')}" if show_store else ""
+    store_phone = store.get("phone", "") or ""
+    phone_html = (
+        f'<span>📞 <a href="tel:{store_phone}" style="color:#757575; text-decoration:none;">'
+        f'{store_phone}</a></span>'
+        if store_phone and show_store else ""
+    )
 
     st.markdown(f"""
     <div class="ticket-card" style="border-left-color: {urgency_color};">
@@ -31,6 +37,7 @@ def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str 
             <span>{urgency_badge(urgency)}</span>
             <span>{category}</span>
             {"<span>" + store_label + "</span>" if store_label else ""}
+            {phone_html}
             <span>{time_ago(ticket.get('created_at', ''))}</span>
         </div>
         {f'<div style="font-size: 0.8rem; color: #757575; margin-top: 0.25rem;">Est: {format_currency(ticket.get("estimated_cost"))}</div>' if ticket.get("estimated_cost") else ""}
@@ -57,7 +64,15 @@ def render_ticket_detail(ticket: dict, photos: list = None, comments: list = Non
         st.markdown(f"**Urgency:** {urgency_badge(ticket.get('urgency', ''))}", unsafe_allow_html=True)
         st.markdown(f"**Category:** {ticket.get('category', 'N/A')}")
     with col2:
-        st.markdown(f"**Store:** {store.get('store_number', '')} - {store.get('name', '')}")
+        store_phone = store.get("phone", "") or ""
+        phone_display = (
+            f' &nbsp;[📞 {store_phone}](tel:{store_phone})'
+            if store_phone else ""
+        )
+        st.markdown(
+            f"**Store:** {store.get('store_number', '')} - {store.get('name', '')}{phone_display}",
+            unsafe_allow_html=True,
+        )
         st.markdown(f"**Submitted by:** {submitter.get('full_name', 'N/A')}")
         st.markdown(f"**Submitted:** {time_ago(ticket.get('created_at', ''))}")
 

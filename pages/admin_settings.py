@@ -138,8 +138,9 @@ def _render_store_management(client_id: str, admin_user: dict):
         with st.form("add_store"):
             col1, col2 = st.columns(2)
             with col1:
-                store_num = st.text_input("Store Number *", placeholder="006")
-                name = st.text_input("Store Name *", placeholder="Store #006 - Downtown")
+                store_num = st.text_input("Store Number *", placeholder="112-0039")
+                name = st.text_input("Store Name *", placeholder="Store Name (State)")
+                phone = st.text_input("Phone Number *", placeholder="(555) 867-5309")
                 address = st.text_input("Address")
             with col2:
                 city = st.text_input("City")
@@ -149,11 +150,14 @@ def _render_store_management(client_id: str, admin_user: dict):
             if st.form_submit_button("Add Store", use_container_width=True):
                 if not store_num or not name:
                     st.error("Store number and name are required.")
+                elif not phone or not phone.strip():
+                    st.error("Phone number is required.")
                 else:
                     result = create_store({
                         "client_id": client_id,
                         "store_number": store_num,
                         "name": name,
+                        "phone": phone.strip(),
                         "address": address or None,
                         "city": city or None,
                         "state": state or None,
@@ -172,6 +176,7 @@ def _render_store_management(client_id: str, admin_user: dict):
     for s in stores:
         active = "" if s.get("is_active") else " (INACTIVE)"
         with st.expander(f"{s['store_number']} - {s['name']}{active}"):
+            st.markdown(f"**Phone:** {s.get('phone') or 'Not set'}")
             st.markdown(f"**Address:** {s.get('address', 'N/A')}")
             st.markdown(f"**City:** {s.get('city', 'N/A')}, {s.get('state', 'N/A')}")
             st.markdown(f"**Region:** {s.get('region', 'N/A')}")

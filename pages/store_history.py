@@ -20,7 +20,6 @@ from utils.helpers import format_currency, format_date_short
 
 try:
     import plotly.express as px
-    import plotly.graph_objects as go
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False

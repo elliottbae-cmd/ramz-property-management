@@ -72,6 +72,7 @@ def record_feedback(data: dict) -> dict | None:
         return None
 
 
+@st.cache_data(ttl=300)
 def get_tip_stats(tip_id: str) -> dict:
     """Return helpful / not-helpful counts for a KB tip.
 

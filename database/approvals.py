@@ -85,6 +85,7 @@ def initiate_approval_chain(ticket_id: str, client_id: str,
         return []
 
 
+@st.cache_data(ttl=60)
 def get_pending_approvals(user_id: str, client_id: str = None) -> list[dict]:
     """Return approval records waiting on this user.
 
@@ -113,7 +114,7 @@ def get_pending_approvals(user_id: str, client_id: str = None) -> list[dict]:
                 return []
             result = (
                 sb.table("approvals")
-                .select("*, tickets(*, stores(store_number, name))")
+                .select("*, tickets(*, stores(store_number, name, phone))")
                 .eq("client_id", client_id)
                 .eq("status", "pending")
                 .order("step_order")
@@ -131,7 +132,7 @@ def get_pending_approvals(user_id: str, client_id: str = None) -> list[dict]:
 
         result = (
             sb.table("approvals")
-            .select("*, tickets(*, stores(store_number, name))")
+            .select("*, tickets(*, stores(store_number, name, phone))")
             .eq("client_id", effective_client_id)
             .eq("role_required", role)
             .eq("status", "pending")

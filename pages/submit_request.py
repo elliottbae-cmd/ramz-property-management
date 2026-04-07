@@ -5,13 +5,13 @@ Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import get_current_user, get_client, upload_photo
+from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
-from database.equipment import get_equipment, create_equipment
+from database.equipment import create_equipment
 from database.warranty_lookup import check_warranty_status, save_warranty_from_ai
 from database.tickets import create_ticket
-from database.approvals import initiate_approval_chain, get_threshold
+from database.approvals import initiate_approval_chain
 from database.audit import log_action
 from database.cost_estimation import get_cost_estimate_details
 from components.photo_upload import render_photo_upload, save_photos

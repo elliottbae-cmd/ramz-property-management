@@ -5,7 +5,7 @@ Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import get_current_user
+from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
 from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment, update_ticket

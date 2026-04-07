@@ -246,6 +246,7 @@ def save_manufacture_date(equip_id: str, manufacture_date, decode_method: str = 
 # ------------------------------------------------------------------
 
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def get_warranties(equipment_id: str) -> list[dict]:
     """Get all warranty records for a piece of equipment."""
     try:

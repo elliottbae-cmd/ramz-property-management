@@ -24,7 +24,7 @@ def get_ticket(ticket_id: str) -> dict | None:
         sb = get_client()
         result = (
             sb.table("tickets")
-            .select("*, stores(store_number, name, client_id), equipment(name, serial_number)")
+            .select("*, stores(store_number, name, phone, client_id), equipment(name, serial_number)")
             .eq("id", ticket_id)
             .single()
             .execute()
@@ -41,7 +41,7 @@ def get_tickets_for_user(user_id: str) -> list[dict]:
         sb = get_client()
         result = (
             sb.table("tickets")
-            .select("*, stores(store_number, name)")
+            .select("*, stores(store_number, name, phone)")
             .or_(f"submitted_by.eq.{user_id},assigned_to.eq.{user_id}")
             .order("created_at", desc=True)
             .execute()
@@ -82,7 +82,7 @@ def _fetch_tickets_for_client(
         sb = get_client()
         query = (
             sb.table("tickets")
-            .select("*, stores(store_number, name)")
+            .select("*, stores(store_number, name, phone)")
             .eq("client_id", client_id)
             .order("created_at", desc=True)
             .limit(limit)
@@ -123,6 +123,7 @@ def update_ticket(ticket_id: str, data: dict) -> dict | None:
 # Comments
 # ------------------------------------------------------------------
 
+@st.cache_data(ttl=120)
 def get_ticket_comments(ticket_id: str) -> list[dict]:
     """Get comments for a ticket, chronological order."""
     try:
@@ -139,6 +140,7 @@ def get_ticket_comments(ticket_id: str) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=120)
 def get_ticket_photos(ticket_id: str) -> list[dict]:
     """Fetch photos for a ticket."""
     try:
@@ -155,6 +157,7 @@ def get_ticket_photos(ticket_id: str) -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=120)
 def get_ticket_approvals(ticket_id: str) -> list[dict]:
     """Fetch approval records for a ticket with approver names."""
     try:

@@ -11,7 +11,7 @@ from database.tenant import get_effective_client_id
 from database.equipment import (
     get_equipment_for_client,
     get_warranties,
-    check_active_warranty,
+    get_active_warranties_bulk,
     create_warranty,
 )
 from database.warranty_lookup import (
@@ -45,9 +45,11 @@ def render():
         st.info("No equipment found for this client.")
         return
 
-    # Enrich with warranty data (both functions are now cached per-item)
+    # Bulk-load active warranties in one query instead of N per-item calls
+    eq_ids = tuple(item["id"] for item in all_equipment)
+    active_warranty_map = get_active_warranties_bulk(eq_ids)
     for item in all_equipment:
-        item["active_warranty"] = check_active_warranty(item["id"])
+        item["active_warranty"] = active_warranty_map.get(item["id"])
         item["all_warranties"] = get_warranties(item["id"]) if not item["active_warranty"] else []
 
     # Tabs
