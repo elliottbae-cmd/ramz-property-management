@@ -10,6 +10,7 @@ from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
 from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment, update_ticket
 from database.contractors import get_contractors
+from utils.contractor_matcher import find_matching_contractors
 from database.work_orders import create_work_order
 from database.audit import log_action
 from database.approvals import initiate_approval_chain
@@ -314,13 +315,47 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
 
     with tab_workorder:
         st.markdown("**Issue Work Order to Contractor**")
-        contractors = get_contractors({"active_only": True})
 
-        if contractors:
-            contractor_options = {
-                c["id"]: f"{'* ' if c.get('is_preferred') else ''}{c['company_name']} ({c.get('avg_rating', 0):.1f}/5)"
-                for c in contractors
+        # Get store info for geo + trade matching
+        store = ticket.get("stores") or {}
+        category = ticket.get("category", "")
+        matched = find_matching_contractors(store, category)
+
+        if matched:
+            # Build label: preferred star, name, rating, match type
+            match_labels = {
+                "city": "📍 city match",
+                "zip": "📍 zip match",
+                "state": "🗺 state match",
+                "exception": "✅ exception",
             }
+            contractor_options = {
+                c["id"]: (
+                    f"{'★ ' if c.get('is_preferred') else ''}"
+                    f"{c['company_name']} "
+                    f"({c.get('avg_rating', 0):.1f}/5 · {match_labels.get(match_type, match_type)})"
+                )
+                for c, match_type in matched
+            }
+            st.caption(f"{len(matched)} contractor(s) matched for **{category}** at **{store.get('city', '')}, {store.get('state', '')}**")
+        else:
+            # No geo/trade match — fall back to all active contractors with a warning
+            all_contractors = get_contractors({"active_only": True})
+            if all_contractors:
+                st.warning(
+                    f"No contractors in the directory match **{category}** "
+                    f"at **{store.get('city', '')}, {store.get('state', '')}**. "
+                    "Showing all active contractors — consider adding a matched contractor in the Contractor Directory."
+                )
+                contractor_options = {
+                    c["id"]: f"{'★ ' if c.get('is_preferred') else ''}{c['company_name']} ({c.get('avg_rating', 0):.1f}/5)"
+                    for c in all_contractors
+                }
+            else:
+                st.info("No contractors found. Add contractors in the Contractor Directory.")
+                contractor_options = {}
+
+        if contractor_options:
             selected_contractor = st.selectbox(
                 "Select Contractor",
                 options=list(contractor_options.keys()),
@@ -345,8 +380,6 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                     st.rerun()
                 else:
                     st.error("Failed to create work order.")
-        else:
-            st.info("No contractors found. Add contractors in the Contractor Directory.")
 
     with tab_comment:
         new_comment = st.text_area(
