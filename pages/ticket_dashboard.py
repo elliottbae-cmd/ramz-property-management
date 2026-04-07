@@ -191,8 +191,29 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
     )
 
     with tab_assign:
-        # Get users for this client who can be assigned
-        client_users = get_users_for_client(client_id)
+        # Get users who can be assigned — exclude GMs (they submit, they don't own repairs)
+        ASSIGNABLE_ROLES = {"dm", "doo", "vp", "admin", "coo"}
+        client_users = [
+            u for u in get_users_for_client(client_id)
+            if u.get("client_role") in ASSIGNABLE_ROLES
+        ]
+        # Also include PSP users who have access to this client
+        try:
+            sb = get_client()
+            psp_access = (
+                sb.table("psp_client_access")
+                .select("psp_user_id, users(id, full_name, psp_role)")
+                .eq("client_id", client_id)
+                .execute()
+            )
+            for row in (psp_access.data or []):
+                u = row.get("users") or {}
+                if u.get("id"):
+                    u["client_role"] = u.get("psp_role", "psp")
+                    client_users.append(u)
+        except Exception:
+            pass
+
         if client_users:
             st.markdown("**Assign to team member:**")
             user_options = {u["id"]: f"{u['full_name']} ({u.get('client_role', 'N/A')})" for u in client_users}
