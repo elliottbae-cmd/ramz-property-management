@@ -19,17 +19,41 @@ def create_ticket(data: dict) -> dict | None:
 
 
 def get_ticket(ticket_id: str) -> dict | None:
-    """Fetch a single ticket with joined store, submitter, and equipment data."""
+    """Fetch a single ticket with joined store and equipment data.
+
+    Submitter name is resolved separately because submitted_by references
+    auth.users, not the public users table — PostgREST cannot auto-join across
+    that boundary.
+    """
     try:
         sb = get_client()
         result = (
             sb.table("tickets")
-            .select("*, stores(store_number, name, phone, client_id), equipment(name, serial_number), users:submitted_by(full_name)")
+            .select("*, stores(store_number, name, phone, client_id), equipment(name, serial_number)")
             .eq("id", ticket_id)
             .single()
             .execute()
         )
-        return result.data
+        ticket = result.data
+        if not ticket:
+            return None
+
+        # Resolve submitter full_name from public users table
+        submitted_by = ticket.get("submitted_by")
+        if submitted_by:
+            try:
+                user_result = (
+                    sb.table("users")
+                    .select("full_name")
+                    .eq("id", submitted_by)
+                    .single()
+                    .execute()
+                )
+                ticket["users"] = user_result.data or {}
+            except Exception:
+                ticket["users"] = {}
+
+        return ticket
     except Exception:
         return None
 
