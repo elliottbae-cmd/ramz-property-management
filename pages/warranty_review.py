@@ -704,9 +704,10 @@ def _complete_under_warranty(
         }
         create_warranty(warranty_data)
 
-    # Update ticket status to pending_approval and mark warranty_checked
+    # Update ticket — mark warranty checked, return to submitted for PSP to manage
+    # pending_approval is triggered later when PSP enters a contractor bid
     update_ticket(ticket_id, {
-        "status": "pending_approval",
+        "status": "submitted",
         "warranty_checked": True,
     })
 
@@ -757,9 +758,9 @@ def _complete_not_under_warranty(ticket: dict, user: dict, client_id: str):
 
     notes = st.session_state.get(f"wr_nowarranty_notes_{ticket_id}", "")
 
-    # Update ticket status to pending_approval
+    # Update ticket — mark warranty checked, return to submitted for PSP to manage
     update_ticket(ticket_id, {
-        "status": "pending_approval",
+        "status": "submitted",
         "warranty_checked": True,
     })
 
