@@ -80,6 +80,24 @@ def update_user(user_id: str, data: dict) -> dict | None:
         return None
 
 
+def get_psp_users_by_role(psp_role: str, active_only: bool = True) -> list[dict]:
+    """Return PSP staff with a specific psp_role (e.g. 'project_manager', 'admin')."""
+    try:
+        sb = get_client()
+        query = (
+            sb.table("users")
+            .select("*")
+            .eq("user_tier", "psp")
+            .eq("psp_role", psp_role)
+            .order("full_name")
+        )
+        if active_only:
+            query = query.eq("is_active", True)
+        return query.execute().data or []
+    except Exception:
+        return []
+
+
 @st.cache_data(ttl=300)
 def get_users_by_role(client_id: str, role: str, active_only: bool = True) -> list[dict]:
     """Return users with a specific client_role within a client org."""

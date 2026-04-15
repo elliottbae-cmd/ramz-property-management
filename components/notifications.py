@@ -157,12 +157,16 @@ def _ticket_core_rows(ticket: dict) -> str:
     ])
 
 
-def _get_psp_recipients(client_id: str) -> list[dict]:
-    """Return PSP project managers for a client, falling back to PSP admins."""
-    from database.users import get_users_by_role
-    users = get_users_by_role(client_id, "project_manager")
+def _get_psp_recipients(client_id: str = None) -> list[dict]:
+    """Return PSP project managers, falling back to PSP admins.
+
+    PSP users are global (not scoped to a client_id) — they use
+    user_tier='psp' and psp_role, not client_role.
+    """
+    from database.users import get_psp_users_by_role
+    users = get_psp_users_by_role("project_manager")
     if not users:
-        users = get_users_by_role(client_id, "admin")
+        users = get_psp_users_by_role("admin")
     return [
         {"email": u["email"], "name": u.get("full_name", "")}
         for u in users if u.get("email")
