@@ -81,9 +81,13 @@ def update_user(user_id: str, data: dict) -> dict | None:
 
 
 def get_psp_users_by_role(psp_role: str, active_only: bool = True) -> list[dict]:
-    """Return PSP staff with a specific psp_role (e.g. 'project_manager', 'admin')."""
+    """Return PSP staff with a specific psp_role (e.g. 'project_manager', 'admin').
+
+    Uses the admin client to bypass RLS — needed for cross-user email lookups.
+    """
     try:
-        sb = get_client()
+        from database.supabase_client import get_admin_client
+        sb = get_admin_client()
         query = (
             sb.table("users")
             .select("*")
@@ -100,9 +104,13 @@ def get_psp_users_by_role(psp_role: str, active_only: bool = True) -> list[dict]
 
 @st.cache_data(ttl=300)
 def get_users_by_role(client_id: str, role: str, active_only: bool = True) -> list[dict]:
-    """Return users with a specific client_role within a client org."""
+    """Return users with a specific client_role within a client org.
+
+    Uses admin client to bypass RLS — needed for notification email lookups.
+    """
     try:
-        sb = get_client()
+        from database.supabase_client import get_admin_client
+        sb = get_admin_client()
         query = (
             sb.table("users")
             .select("*")
