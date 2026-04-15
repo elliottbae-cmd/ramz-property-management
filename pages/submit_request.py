@@ -314,9 +314,13 @@ def render():
                 )
 
                 try:
-                    # Fetch full ticket with stores/equipment joins for notification
-                    full_ticket = get_ticket(ticket_id) or result
-                    notify_new_ticket(full_ticket, client_id)
+                    # Build enriched ticket dict using data already in scope —
+                    # avoids a second DB round-trip and works regardless of RLS.
+                    notify_ticket = dict(result)
+                    notify_ticket["stores"] = selected_store  # already fetched above
+                    if new_equipment_name:
+                        notify_ticket["equipment"] = {"name": new_equipment_name}
+                    notify_new_ticket(notify_ticket, client_id)
                 except Exception as notify_err:
                     st.warning(f"⚠️ Notification error: {notify_err}")
 
