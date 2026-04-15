@@ -313,7 +313,12 @@ def render():
                     details={"category": category_name, "urgency": selected_urgency},
                 )
 
-                notify_new_ticket(result, client_id)
+                try:
+                    sent = notify_new_ticket(result, client_id)
+                    if not sent:
+                        st.warning("⚠️ Ticket saved but PSP email notification failed — check logs.")
+                except Exception as notify_err:
+                    st.warning(f"⚠️ Ticket saved but notification error: {notify_err}")
                 st.success(
                     f"Repair request submitted successfully! "
                     f"Ticket #{result.get('ticket_number', 'N/A')}"
