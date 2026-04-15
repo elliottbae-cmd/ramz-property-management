@@ -129,27 +129,33 @@ def _base_html(title: str, body_rows: str, cta_url: str = "", cta_label: str = "
 
 
 def _detail_row(label: str, value: str) -> str:
-    """Two-column detail row: narrow label on left, value wraps naturally on right."""
+    """Stacked label/value rows — reliable in Outlook and all email clients.
+    CSS column widths are ignored by Outlook's Word renderer, so we use
+    a single-column stacked layout instead."""
     return (
         f'<tr>'
-        f'<td style="padding:5px 12px 5px 0; color:#777; font-size:13px; '
-        f'width:130px; min-width:130px; white-space:nowrap; vertical-align:top;">'
-        f'<strong style="color:#555;">{label}</strong></td>'
-        f'<td style="padding:5px 0; color:#222; font-size:14px; '
-        f'word-break:break-word; overflow-wrap:break-word; line-height:1.5;">{value}</td>'
+        f'<td style="padding:8px 0 1px; color:#999; font-size:11px; '
+        f'text-transform:uppercase; letter-spacing:0.6px; font-weight:bold;">'
+        f'{label}</td>'
+        f'</tr>'
+        f'<tr>'
+        f'<td style="padding:0 0 10px; color:#222; font-size:14px; '
+        f'line-height:1.5; word-break:break-word; overflow-wrap:break-word;">'
+        f'{value}</td>'
         f'</tr>'
     )
 
 
 def _intro_row(text: str) -> str:
     return (
-        f'<tr><td colspan="2" style="padding:0 0 14px; color:#555; font-size:14px; line-height:1.6;">'
+        f'<tr><td style="padding:0 0 14px; color:#555; font-size:14px; line-height:1.6;">'
         f'{text}</td></tr>'
     )
 
+
 def _divider_row() -> str:
     return (
-        f'<tr><td colspan="2" style="padding:8px 0;">'
+        f'<tr><td style="padding:6px 0 10px;">'
         f'<hr style="border:none; border-top:1px solid #eee; margin:0;"></td></tr>'
     )
 
