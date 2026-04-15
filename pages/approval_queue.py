@@ -14,7 +14,7 @@ from components.ticket_card import render_ticket_detail
 from theme.branding import render_header, urgency_badge, status_badge
 from utils.helpers import time_ago, format_currency
 from utils.permissions import require_permission, can_approve
-from components.notifications import notify_ticket_approved
+from components.notifications import notify_ticket_approved, notify_ticket_rejected
 
 
 def render():
@@ -137,6 +137,7 @@ def _render_approval_detail(ticket_id: str, user: dict):
                 update_ticket(ticket_id, {"status": "rejected"})
 
                 if client_id:
+                    notify_ticket_rejected(ticket, client_id, notes=notes or "")
                     log_action(client_id, user["id"], "reject", "ticket", ticket_id,
                                {"approval_id": approval_id, "notes": notes})
 

@@ -28,6 +28,7 @@ from database.equipment import create_warranty, get_equipment_by_id, save_manufa
 from database.warranty_lookup import check_warranty_status
 from database.approvals import initiate_approval_chain
 from database.audit import log_action
+from components.notifications import notify_warranty_complete
 from theme.branding import render_header
 from utils.permissions import require_permission, can_access_psp_admin
 from utils.constants import URGENCY_COLORS
@@ -746,6 +747,7 @@ def _complete_under_warranty(
         details={"decision": "under_warranty", "provider": provider},
     )
 
+    notify_warranty_complete(ticket, client_id, under_warranty=True)
     st.success(f"✅ Warranty review complete for Ticket #{ticket.get('ticket_number', 'N/A')}. Ticket has been routed forward with warranty instructions for the GM/DM.")
     st.session_state[f"wr_expanded_{ticket.get('id', '')}"] = False
     st.rerun()
@@ -785,6 +787,7 @@ def _complete_not_under_warranty(ticket: dict, user: dict, client_id: str):
         details={"decision": "not_under_warranty"},
     )
 
+    notify_warranty_complete(ticket, client_id, under_warranty=False)
     st.success(f"Warranty review complete for Ticket #{ticket.get('ticket_number', 'N/A')}. Moved to normal approval flow.")
     st.rerun()
 

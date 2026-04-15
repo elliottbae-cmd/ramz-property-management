@@ -14,7 +14,7 @@ from utils.contractor_matcher import find_matching_contractors
 from database.work_orders import create_work_order, get_work_orders
 from database.audit import log_action
 from database.approvals import initiate_approval_chain
-from components.notifications import notify_approval_needed
+from components.notifications import notify_approval_needed, notify_work_order_issued
 from components.ticket_card import render_ticket_card, render_ticket_detail
 from components.document_upload import render_document_upload, render_document_list
 from theme.branding import render_header
@@ -202,6 +202,10 @@ def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: 
             update_ticket(ticket_id, {"status": "in_progress"})
             log_action(client_id, user["id"], "create", "work_order", wo["id"],
                        {"ticket_id": ticket_id, "contractor_id": selected_contractor})
+            contractor_display = contractor_options.get(selected_contractor, "")
+            # Strip rating suffix e.g. "ABC Plumbing (4.5/5 · matched)" → "ABC Plumbing"
+            contractor_name = contractor_display.split(" (")[0].strip()
+            notify_work_order_issued(ticket, client_id, contractor_name)
             get_work_orders.clear()
             st.success("Work order issued!")
             st.rerun()

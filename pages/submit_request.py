@@ -12,6 +12,7 @@ from database.equipment import create_equipment
 from database.tickets import create_ticket
 from database.audit import log_action
 from components.photo_upload import render_photo_upload, save_photos
+from components.notifications import notify_new_ticket
 from theme.branding import render_header
 
 
@@ -312,6 +313,7 @@ def render():
                     details={"category": category_name, "urgency": selected_urgency},
                 )
 
+                notify_new_ticket(result, client_id)
                 st.success(
                     f"Repair request submitted successfully! "
                     f"Ticket #{result.get('ticket_number', 'N/A')}"
