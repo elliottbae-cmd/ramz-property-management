@@ -57,11 +57,10 @@ def _send_email(to_emails: list[dict], subject: str, html_body: str) -> bool:
         response = sg.send(message)
         success = response.status_code in (200, 202)
         if not success:
-            print(f"[NOTIFICATION] SendGrid returned {response.status_code} for '{subject}'")
+            raise RuntimeError(f"SendGrid returned {response.status_code}")
         return success
     except Exception:
-        print(f"[NOTIFICATION] SendGrid error:\n{traceback.format_exc()}")
-        return False
+        raise
 
 
 def _base_html(title: str, body_rows: str, cta_url: str = "", cta_label: str = "") -> str:

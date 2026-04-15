@@ -316,7 +316,7 @@ def render():
                 try:
                     notify_new_ticket(result, client_id)
                 except Exception as notify_err:
-                    st.warning(f"⚠️ Ticket saved but notification error: {notify_err}")
+                    st.warning(f"⚠️ Notification error: {notify_err}")
                 st.success(
                     f"Repair request submitted successfully! "
                     f"Ticket #{result.get('ticket_number', 'N/A')}"
