@@ -97,8 +97,11 @@ def get_psp_users_by_role(psp_role: str, active_only: bool = True) -> list[dict]
         )
         if active_only:
             query = query.eq("is_active", True)
-        return query.execute().data or []
-    except Exception:
+        result = query.execute().data or []
+        print(f"[NOTIFY] get_psp_users_by_role({psp_role}) → {len(result)} users found")
+        return result
+    except Exception as e:
+        print(f"[NOTIFY] get_psp_users_by_role({psp_role}) ERROR: {e}")
         return []
 
 
