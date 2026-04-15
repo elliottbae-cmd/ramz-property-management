@@ -42,13 +42,16 @@ def _send_email(to_emails: list[dict], subject: str, html_body: str) -> bool:
         from sendgrid import SendGridAPIClient
         from sendgrid.helpers.mail import Mail, To
 
+        to_list = [
+            To(email=r["email"], name=r.get("name", ""))
+            for r in to_emails
+        ]
         message = Mail(
             from_email=(SENDGRID_FROM_EMAIL, SENDGRID_FROM_NAME),
+            to_emails=to_list,
             subject=subject,
             html_content=html_body,
         )
-        for recipient in to_emails:
-            message.to = To(email=recipient["email"], name=recipient.get("name", ""))
 
         sg = SendGridAPIClient(SENDGRID_API_KEY)
         response = sg.send(message)
