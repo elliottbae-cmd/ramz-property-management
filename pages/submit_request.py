@@ -9,7 +9,7 @@ from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
 from database.equipment import create_equipment
-from database.tickets import create_ticket
+from database.tickets import create_ticket, get_ticket
 from database.audit import log_action
 from components.photo_upload import render_photo_upload, save_photos
 from components.notifications import notify_new_ticket
@@ -314,7 +314,9 @@ def render():
                 )
 
                 try:
-                    notify_new_ticket(result, client_id)
+                    # Fetch full ticket with stores/equipment joins for notification
+                    full_ticket = get_ticket(ticket_id) or result
+                    notify_new_ticket(full_ticket, client_id)
                 except Exception as notify_err:
                     st.warning(f"⚠️ Notification error: {notify_err}")
 

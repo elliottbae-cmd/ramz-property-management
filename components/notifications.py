@@ -69,7 +69,7 @@ def _base_html(title: str, body_rows: str, cta_url: str = "", cta_label: str = "
     if cta_url and cta_label:
         cta_block = f"""
         <tr>
-          <td style="padding:24px 32px 0;">
+          <td style="padding:20px 32px 0;">
             <a href="{cta_url}"
                style="display:inline-block; background:#C4A04D; color:#fff;
                       text-decoration:none; padding:12px 28px; border-radius:6px;
@@ -88,7 +88,7 @@ def _base_html(title: str, body_rows: str, cta_url: str = "", cta_label: str = "
           <td align="center" style="padding:32px 16px;">
             <table width="600" cellpadding="0" cellspacing="0"
                    style="background:#fff; border-radius:8px; overflow:hidden;
-                          box-shadow:0 2px 8px rgba(0,0,0,.1);">
+                          box-shadow:0 2px 8px rgba(0,0,0,.1); max-width:600px;">
               <!-- Header -->
               <tr>
                 <td style="background:#C4A04D; padding:24px 32px;">
@@ -99,17 +99,23 @@ def _base_html(title: str, body_rows: str, cta_url: str = "", cta_label: str = "
               </tr>
               <!-- Title -->
               <tr>
-                <td style="padding:24px 32px 8px;">
-                  <h2 style="margin:0; color:#333; font-size:18px;">{title}</h2>
+                <td style="padding:24px 32px 12px;">
+                  <h2 style="margin:0; color:#333; font-size:18px; line-height:1.4;">{title}</h2>
                 </td>
               </tr>
-              <!-- Body rows -->
-              {body_rows}
+              <!-- Body rows (inner table for 2-column detail layout) -->
+              <tr>
+                <td style="padding:0 32px 8px;">
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    {body_rows}
+                  </table>
+                </td>
+              </tr>
               {cta_block}
               <!-- Footer -->
               <tr>
-                <td style="padding:32px; color:#888; font-size:12px;
-                           border-top:1px solid #eee; margin-top:24px;">
+                <td style="padding:28px 32px; color:#999; font-size:12px;
+                           border-top:1px solid #eee; line-height:1.5;">
                   This is an automated notification from the Plaza Street Partners
                   Property Management system. Please do not reply to this email.
                 </td>
@@ -123,19 +129,28 @@ def _base_html(title: str, body_rows: str, cta_url: str = "", cta_label: str = "
 
 
 def _detail_row(label: str, value: str) -> str:
+    """Two-column detail row: narrow label on left, value wraps naturally on right."""
     return (
         f'<tr>'
-        f'<td style="padding:4px 32px; color:#555; font-size:14px; width:140px; vertical-align:top;">'
-        f'<strong>{label}</strong></td>'
-        f'<td style="padding:4px 8px; color:#333; font-size:14px;">{value}</td>'
+        f'<td style="padding:5px 12px 5px 0; color:#777; font-size:13px; '
+        f'width:130px; min-width:130px; white-space:nowrap; vertical-align:top;">'
+        f'<strong style="color:#555;">{label}</strong></td>'
+        f'<td style="padding:5px 0; color:#222; font-size:14px; '
+        f'word-break:break-word; overflow-wrap:break-word; line-height:1.5;">{value}</td>'
         f'</tr>'
     )
 
 
 def _intro_row(text: str) -> str:
     return (
-        f'<tr><td colspan="2" style="padding:8px 32px 16px; color:#555; font-size:14px;">'
+        f'<tr><td colspan="2" style="padding:0 0 14px; color:#555; font-size:14px; line-height:1.6;">'
         f'{text}</td></tr>'
+    )
+
+def _divider_row() -> str:
+    return (
+        f'<tr><td colspan="2" style="padding:8px 0;">'
+        f'<hr style="border:none; border-top:1px solid #eee; margin:0;"></td></tr>'
     )
 
 
@@ -149,13 +164,15 @@ def _ticket_core_rows(ticket: dict) -> str:
     equip_name = equipment.get("name") or ticket.get("category") or "—"
     description = ticket.get("description") or "—"
     urgency = (ticket.get("urgency") or "").replace("_", " ").title()
-    desc_display = description[:200] + ("…" if len(description) > 200 else "")
+    # Truncate long descriptions but don't let them blow up the layout
+    desc_display = description[:300] + ("…" if len(description) > 300 else "")
 
     return "".join([
         _detail_row("Store", store_display),
+        _detail_row("Category", ticket.get("category") or "—"),
         _detail_row("Equipment", equip_name),
         _detail_row("Issue", desc_display),
-        _detail_row("Urgency", urgency or "—"),
+        _detail_row("Urgency", f"<strong>{urgency or '—'}</strong>"),
     ])
 
 
@@ -220,7 +237,8 @@ def notify_new_ticket(ticket: dict, client_id: str) -> bool:
 
     body_rows = "".join([
         _intro_row("A new repair request has been submitted and is awaiting warranty review."),
-        _detail_row("Ticket #", ticket_num),
+        _divider_row(),
+        _detail_row("Ticket #", f"<strong>#{ticket_num}</strong>"),
         _ticket_core_rows(ticket),
     ])
 
@@ -267,8 +285,10 @@ def notify_warranty_complete(ticket: dict, client_id: str, under_warranty: bool 
             "PSP has completed the warranty review for the ticket below. "
             "A contractor bid will follow shortly for your approval."
         ),
-        _detail_row("Ticket #", ticket_num),
+        _divider_row(),
+        _detail_row("Ticket #", f"<strong>#{ticket_num}</strong>"),
         _ticket_core_rows(ticket),
+        _divider_row(),
         _detail_row("Warranty Status", warranty_note),
     ])
 
@@ -306,8 +326,10 @@ def notify_approval_needed(ticket: dict, bid_amount: float, client_id: str) -> b
 
     body_rows = "".join([
         _intro_row("A contractor bid has been submitted and requires your approval."),
-        _detail_row("Ticket #", ticket_num),
+        _divider_row(),
+        _detail_row("Ticket #", f"<strong>#{ticket_num}</strong>"),
         _ticket_core_rows(ticket),
+        _divider_row(),
         _detail_row("Contractor Bid",
                     f"<strong style='color:#C4A04D; font-size:16px;'>{bid_str}</strong>"),
     ])
@@ -353,8 +375,10 @@ def notify_ticket_approved(ticket: dict, client_id: str) -> bool:
             "This repair request has been fully approved. "
             "Plaza Street Partners will issue a work order and coordinate with the contractor."
         ),
-        _detail_row("Ticket #", ticket_num),
+        _divider_row(),
+        _detail_row("Ticket #", f"<strong>#{ticket_num}</strong>"),
         _ticket_core_rows(ticket),
+        _divider_row(),
         _detail_row("Approved Bid",
                     f"<strong style='color:#27AE60; font-size:16px;'>{bid_str}</strong>"),
     ])
@@ -393,8 +417,10 @@ def notify_ticket_rejected(ticket: dict, client_id: str, notes: str = "") -> boo
 
     body_rows = "".join([
         _intro_row("A DM has rejected this ticket. Review the reason below and follow up as needed."),
-        _detail_row("Ticket #", ticket_num),
+        _divider_row(),
+        _detail_row("Ticket #", f"<strong>#{ticket_num}</strong>"),
         _ticket_core_rows(ticket),
+        _divider_row(),
         _detail_row("Rejection Reason",
                     f"<span style='color:#C0392B;'>{reason_display}</span>"),
     ])
@@ -436,8 +462,10 @@ def notify_work_order_issued(ticket: dict, client_id: str, contractor_name: str)
             "A work order has been issued for your repair request. "
             "The contractor below will be in contact to schedule the repair."
         ),
-        _detail_row("Ticket #", ticket_num),
+        _divider_row(),
+        _detail_row("Ticket #", f"<strong>#{ticket_num}</strong>"),
         _ticket_core_rows(ticket),
+        _divider_row(),
         _detail_row("Contractor",
                     f"<strong style='color:#333;'>{contractor_name or '—'}</strong>"),
     ])
