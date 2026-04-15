@@ -314,11 +314,19 @@ def render():
                 )
 
                 try:
-                    sent = notify_new_ticket(result, client_id)
-                    if not sent:
-                        st.warning("⚠️ Ticket saved but PSP email notification failed — check logs.")
-                except Exception as notify_err:
-                    st.warning(f"⚠️ Ticket saved but notification error: {notify_err}")
+                    from database.users import get_psp_users_by_role
+                    from database.supabase_client import get_admin_client
+                    from config.settings import SENDGRID_API_KEY, SENDGRID_FROM_EMAIL
+                    psp_pm = get_psp_users_by_role("project_manager")
+                    psp_admin = get_psp_users_by_role("admin")
+                    st.warning(
+                        f"DEBUG — project_managers: {len(psp_pm)}, "
+                        f"admins: {len(psp_admin)}, "
+                        f"SG key set: {bool(SENDGRID_API_KEY)}, "
+                        f"from: {SENDGRID_FROM_EMAIL}"
+                    )
+                except Exception as debug_err:
+                    st.warning(f"DEBUG ERROR: {debug_err}")
                 st.success(
                     f"Repair request submitted successfully! "
                     f"Ticket #{result.get('ticket_number', 'N/A')}"
