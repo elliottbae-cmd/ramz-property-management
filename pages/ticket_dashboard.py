@@ -14,6 +14,7 @@ from utils.contractor_matcher import find_matching_contractors
 from database.work_orders import create_work_order, get_work_orders
 from database.audit import log_action
 from database.approvals import initiate_approval_chain
+from components.notifications import notify_approval_needed
 from components.ticket_card import render_ticket_card, render_ticket_detail
 from components.document_upload import render_document_upload, render_document_list
 from theme.branding import render_header
@@ -384,6 +385,7 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                         chain = initiate_approval_chain(ticket_id, client_id, new_bid)
                         if chain:
                             update_ticket(ticket_id, {"status": "pending_approval"})
+                            notify_approval_needed(ticket, new_bid, client_id)
                             st.success(f"Bid of {format_currency(new_bid)} saved — approval request sent to DM.")
                         else:
                             st.success(f"Bid saved: {format_currency(new_bid)}")

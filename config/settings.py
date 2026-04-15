@@ -30,6 +30,14 @@ SUPABASE_SERVICE_KEY = _get_secret("SUPABASE_SERVICE_KEY")  # service_role key f
 # ------------------------------------------------------------------
 APP_NAME = "Plaza Street Property Management"
 APP_VERSION = "2.0.0"
+APP_URL = _get_secret("APP_URL", "")  # e.g. https://your-app.streamlit.app
+
+# ------------------------------------------------------------------
+# SendGrid
+# ------------------------------------------------------------------
+SENDGRID_API_KEY = _get_secret("SENDGRID_API_KEY")
+SENDGRID_FROM_EMAIL = _get_secret("SENDGRID_FROM_EMAIL", "noreply@plazastreetpartners.com")
+SENDGRID_FROM_NAME = _get_secret("SENDGRID_FROM_NAME", "Plaza Street Partners")
 
 # ------------------------------------------------------------------
 # Approval defaults
