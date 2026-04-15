@@ -149,9 +149,15 @@ else:
 # ------------------------------------------------------------------
 st.sidebar.markdown("---")
 if nav_items:
+    nav_keys = list(nav_items.keys())
+    nav_default = 0
+    redirect = st.session_state.pop("nav_redirect", None)
+    if redirect and redirect in nav_keys:
+        nav_default = nav_keys.index(redirect)
     selected = st.sidebar.radio(
         "Navigation",
-        list(nav_items.keys()),
+        nav_keys,
+        index=nav_default,
         label_visibility="collapsed",
     )
 else:

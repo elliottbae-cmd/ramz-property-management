@@ -317,12 +317,16 @@ def render():
                     notify_new_ticket(result, client_id)
                 except Exception as notify_err:
                     st.warning(f"⚠️ Notification error: {notify_err}")
+
                 st.success(
-                    f"Repair request submitted successfully! "
-                    f"Ticket #{result.get('ticket_number', 'N/A')}"
+                    f"Repair request submitted! Ticket #{result.get('ticket_number', 'N/A')} — redirecting to My Tickets..."
                 )
                 st.balloons()
-                st.info("You can submit another request or check 'My Tickets' to track this one.")
+
+                import time
+                time.sleep(2)
+                st.session_state["nav_redirect"] = "My Tickets"
+                st.rerun()
             else:
                 st.error("Failed to create ticket. Please try again.")
 
