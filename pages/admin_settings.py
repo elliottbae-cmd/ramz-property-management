@@ -180,11 +180,31 @@ def _render_store_management(client_id: str, admin_user: dict):
                     except Exception as e:
                         st.error(f"Failed to add store: {e}")
 
-    # List stores
-    st.caption(f"{len(stores)} store(s)")
-    for s in stores:
+    # Search / filter
+    col_search, col_filter = st.columns([3, 1])
+    with col_search:
+        search = st.text_input("Search stores", placeholder="Store number, name, or city...",
+                               label_visibility="collapsed")
+    with col_filter:
+        show_inactive = st.checkbox("Show inactive", value=False)
+
+    filtered = [
+        s for s in stores
+        if (show_inactive or s.get("is_active", True))
+        and (
+            not search
+            or search.lower() in s.get("store_number", "").lower()
+            or search.lower() in s.get("name", "").lower()
+            or search.lower() in (s.get("city") or "").lower()
+            or search.lower() in (s.get("region") or "").lower()
+        )
+    ]
+
+    st.caption(f"{len(filtered)} of {len(stores)} store(s)")
+    for s in filtered:
         active = "" if s.get("is_active") else " (INACTIVE)"
-        with st.expander(f"{s['store_number']} - {s['name']}{active}"):
+        brand = f" · {s['brand']}" if s.get("brand") else ""
+        with st.expander(f"{s['store_number']} — {s['name']}{brand}{active}"):
             st.markdown(f"**Phone:** {s.get('phone') or 'Not set'}")
             st.markdown(f"**Address:** {s.get('address', 'N/A')}")
             st.markdown(f"**City:** {s.get('city', 'N/A')}, {s.get('state', 'N/A')}")
