@@ -8,7 +8,7 @@ import streamlit as st
 from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
-from database.equipment import create_equipment
+from database.equipment import get_equipment_with_details, create_equipment
 from database.tickets import create_ticket, get_ticket
 from database.audit import log_action
 from components.photo_upload import render_photo_upload, save_photos
@@ -159,52 +159,117 @@ def render():
     selected_category = next((c for c in categories if c["id"] == selected_category_id), {})
     category_name = selected_category.get("name", "")
 
-    # ---- Equipment Type (from brand_equipment_options) ----
-    # Look up the store's brand
+    # ---- Equipment Selection ----
     selected_store = next((s for s in stores if s["id"] == selected_store_id), {})
     store_brand = selected_store.get("brand", "")
 
-    # Load equipment options for this brand + category (cached)
-    brand_equip_options = []
-    if store_brand and category_name:
-        brand_equip_options = _get_brand_equipment_options(client_id, store_brand, category_name)
+    # Load existing inventory for this store (cached, bulk-enriched)
+    store_equipment = get_equipment_with_details(selected_store_id)
 
-    equipment_choices = {"": "-- Select Equipment --"}
-    for opt in brand_equip_options:
-        equipment_choices[opt["equipment_name"]] = opt["equipment_name"]
-    equipment_choices["other"] = "Other (not listed)"
+    # Prefer category-matched items; fall back to full store list
+    cat_equipment = [
+        e for e in store_equipment
+        if (e.get("category") or "").lower() == category_name.lower()
+    ]
+    inventory_items = cat_equipment if cat_equipment else store_equipment
 
-    selected_equipment_type = st.selectbox(
-        "Equipment Type",
-        options=list(equipment_choices.keys()),
-        format_func=lambda x: equipment_choices[x],
-        help="Select the type of equipment that needs repair",
+    # Default to existing inventory when available
+    default_mode_idx = 0 if inventory_items else 1
+    equip_mode = st.radio(
+        "Equipment",
+        options=["existing", "new"],
+        format_func=lambda x: "📋 Select from store inventory" if x == "existing" else "➕ Add new / not listed",
+        horizontal=True,
+        index=default_mode_idx,
+        key="equip_mode",
     )
 
-    # Equipment name (from selection or manual entry)
+    selected_equipment_id = None
     new_equipment_name = None
     new_manufacturer = None
-    new_brand = None
+    new_model = None
     new_serial = None
 
-    if selected_equipment_type == "other":
-        new_equipment_name = st.text_input("Equipment Name *", placeholder="e.g., Walk-in Cooler")
-    elif selected_equipment_type:
-        new_equipment_name = selected_equipment_type
+    if equip_mode == "existing":
+        if inventory_items:
+            def _equip_label(e):
+                parts = [e.get("name", "Unknown")]
+                if e.get("manufacturer"):
+                    parts.append(e["manufacturer"])
+                if e.get("model"):
+                    parts.append(e["model"])
+                if e.get("serial_number"):
+                    parts.append(f"S/N: {e['serial_number']}")
+                return " | ".join(parts)
 
-    # Show manufacturer/brand/serial fields when equipment is selected
-    if selected_equipment_type and selected_equipment_type != "":
-        st.caption("Enter equipment details (optional — select N/A if not applicable)")
+            equip_map = {"": "-- Select equipment --"}
+            for e in sorted(inventory_items, key=lambda x: x.get("name", "")):
+                equip_map[e["id"]] = _equip_label(e)
+
+            chosen_equip_id = st.selectbox(
+                "Select Equipment *",
+                options=list(equip_map.keys()),
+                format_func=lambda x: equip_map[x],
+                key="existing_equip_select",
+            )
+            if chosen_equip_id:
+                selected_equipment_id = chosen_equip_id
+                chosen_equip = next((e for e in inventory_items if e["id"] == chosen_equip_id), None)
+                if chosen_equip:
+                    info_parts = []
+                    if chosen_equip.get("manufacturer"):
+                        info_parts.append(f"**Make:** {chosen_equip['manufacturer']}")
+                    if chosen_equip.get("model"):
+                        info_parts.append(f"**Model:** {chosen_equip['model']}")
+                    if chosen_equip.get("serial_number"):
+                        info_parts.append(f"**S/N:** {chosen_equip['serial_number']}")
+                    if chosen_equip.get("active_warranty"):
+                        info_parts.append("✅ **Active warranty**")
+                    if info_parts:
+                        st.caption("  ·  ".join(info_parts))
+        else:
+            st.info("No equipment on record for this store yet — switching to Add new.")
+
+    if equip_mode == "new":
+        # Offer brand-configured equipment names as a starting point
+        brand_equip_options = []
+        if store_brand and category_name:
+            brand_equip_options = _get_brand_equipment_options(client_id, store_brand, category_name)
+
+        if brand_equip_options:
+            equipment_choices = {"": "-- Select equipment type --"}
+            for opt in brand_equip_options:
+                equipment_choices[opt["equipment_name"]] = opt["equipment_name"]
+            equipment_choices["other"] = "Other (describe below)"
+
+            selected_equipment_type = st.selectbox(
+                "Equipment Type *",
+                options=list(equipment_choices.keys()),
+                format_func=lambda x: equipment_choices[x],
+                key="equip_type_select",
+            )
+            if selected_equipment_type == "other":
+                new_equipment_name = st.text_input(
+                    "Equipment Name *", placeholder="e.g., Walk-in Cooler", key="new_equip_name"
+                )
+            elif selected_equipment_type:
+                new_equipment_name = selected_equipment_type
+        else:
+            new_equipment_name = st.text_input(
+                "Equipment Name *", placeholder="e.g., Walk-in Cooler", key="new_equip_name_direct"
+            )
+
+        st.caption("Enter equipment details (optional — check N/A if not applicable)")
         col_m, col_b, col_s = st.columns(3)
         with col_m:
             na_manufacturer = st.checkbox("N/A", key="na_mfg", help="Check if not applicable")
             new_manufacturer = "" if na_manufacturer else st.text_input(
-                "Make/Manufacturer", placeholder="e.g., Henny Penny", key="mfg_input"
+                "Make / Manufacturer", placeholder="e.g., Henny Penny", key="mfg_input"
             )
         with col_b:
-            na_brand = st.checkbox("N/A", key="na_brand", help="Check if not applicable")
-            new_brand = "" if na_brand else st.text_input(
-                "Model", placeholder="e.g., OFE-322", key="brand_input"
+            na_model = st.checkbox("N/A", key="na_model", help="Check if not applicable")
+            new_model = "" if na_model else st.text_input(
+                "Model", placeholder="e.g., OFE-322", key="model_input"
             )
         with col_s:
             na_serial = st.checkbox("N/A", key="na_serial", help="Check if not applicable")
@@ -255,7 +320,7 @@ def render():
             errors.append("Please select a store.")
         if not description or not description.strip():
             errors.append("Please describe the issue.")
-        if selected_equipment_type == "other" and not new_equipment_name:
+        if equip_mode == "new" and not new_equipment_name:
             errors.append("Please enter the equipment name.")
 
         if errors:
@@ -264,20 +329,39 @@ def render():
             return
 
         try:
-            # Create equipment record for this ticket
+            # Resolve equipment_id — link existing or create new
             equipment_id = None
-            if new_equipment_name:
+            if equip_mode == "existing" and selected_equipment_id:
+                # Use the existing inventory record directly — no new row created
+                equipment_id = selected_equipment_id
+            elif equip_mode == "new" and new_equipment_name:
+                # Duplicate serial number check before inserting
+                if new_serial and new_serial.strip():
+                    serial_clean = new_serial.strip().lower()
+                    duplicate = next(
+                        (e for e in store_equipment
+                         if (e.get("serial_number") or "").strip().lower() == serial_clean),
+                        None,
+                    )
+                    if duplicate:
+                        st.error(
+                            f"⚠️ Serial number **{new_serial.strip()}** is already on record "
+                            f"as **{duplicate['name']}** at this store. "
+                            f"Select it from 'Store inventory' instead of adding a duplicate."
+                        )
+                        st.stop()
+
                 eq_data = {
                     "store_id": selected_store_id,
-                    "name": new_equipment_name,
+                    "name": new_equipment_name.strip(),
                     "category": category_name,
                 }
-                if new_serial:
-                    eq_data["serial_number"] = new_serial
-                if new_manufacturer:
-                    eq_data["manufacturer"] = new_manufacturer
-                if new_brand:
-                    eq_data["brand"] = new_brand
+                if new_serial and new_serial.strip():
+                    eq_data["serial_number"] = new_serial.strip()
+                if new_manufacturer and new_manufacturer.strip():
+                    eq_data["manufacturer"] = new_manufacturer.strip()
+                if new_model and new_model.strip():
+                    eq_data["model"] = new_model.strip()
 
                 new_eq = create_equipment(eq_data)
                 if new_eq:
@@ -317,8 +401,14 @@ def render():
                     # Build enriched ticket dict using data already in scope —
                     # avoids a second DB round-trip and works regardless of RLS.
                     notify_ticket = dict(result)
-                    notify_ticket["stores"] = selected_store  # already fetched above
-                    if new_equipment_name:
+                    notify_ticket["stores"] = selected_store
+                    if equip_mode == "existing" and selected_equipment_id:
+                        chosen = next(
+                            (e for e in store_equipment if e["id"] == selected_equipment_id), None
+                        )
+                        if chosen:
+                            notify_ticket["equipment"] = {"name": chosen.get("name", "Unknown")}
+                    elif new_equipment_name:
                         notify_ticket["equipment"] = {"name": new_equipment_name}
                     notify_new_ticket(notify_ticket, client_id)
                 except Exception as notify_err:
