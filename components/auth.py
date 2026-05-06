@@ -57,7 +57,6 @@ def render_login_page():
         with st.form("login_form"):
             email = st.text_input("Email", placeholder="your.email@company.com")
             password = st.text_input("Password", type="password")
-            remember = st.checkbox("Remember me", value=True)
             submitted = st.form_submit_button("Sign In", width="stretch")
 
             if submitted:
@@ -65,7 +64,7 @@ def render_login_page():
                     st.error("Please enter both email and password.")
                 else:
                     try:
-                        result = sign_in(email, password, remember=remember)
+                        result = sign_in(email, password)
                         if result.user:
                             # Post-login hydration
                             _post_login_setup()
