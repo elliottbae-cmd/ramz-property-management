@@ -146,6 +146,11 @@ def _render_store_management(client_id: str, admin_user: dict):
                 city = st.text_input("City")
                 state = st.selectbox("State", [""] + US_STATES, key="new_store_state")
                 region = st.text_input("Region", placeholder="e.g., Nebraska")
+                brand = st.selectbox(
+                    "Brand *",
+                    ["Freddys", "Schlotzskys", "Popeyes", "Other"],
+                    key="new_store_brand",
+                )
 
             if st.form_submit_button("Add Store", width="stretch"):
                 if not store_num or not name:
@@ -162,6 +167,7 @@ def _render_store_management(client_id: str, admin_user: dict):
                         "city": city or None,
                         "state": state or None,
                         "region": region or None,
+                        "brand": brand,
                     })
                     if result:
                         log_action(client_id, admin_user["id"], "create", "store", result["id"],
