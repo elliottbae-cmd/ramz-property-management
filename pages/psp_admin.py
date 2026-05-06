@@ -688,6 +688,43 @@ def _render_store_assignments(admin_user: dict):
     except Exception:
         store_owners = {}
 
+    # ------------------------------------------------------------------
+    # Coverage Gaps — stores with no DM assigned
+    # ------------------------------------------------------------------
+    dm_covered_ids = set(store_owners.keys())
+    uncovered = [s for s in stores if s["id"] not in dm_covered_ids]
+
+    st.markdown("---")
+    st.markdown("#### 🔴 Stores Without a DM Assigned")
+
+    if not uncovered:
+        st.success("All stores have at least one DM assigned.")
+    else:
+        # Brand filter
+        brands = sorted({s.get("brand") or "Unknown" for s in uncovered})
+        all_brands = ["All Brands"] + brands
+        selected_brand = st.selectbox("Filter by Brand", all_brands, key="gap_brand_filter")
+
+        filtered_uncovered = (
+            uncovered if selected_brand == "All Brands"
+            else [s for s in uncovered if (s.get("brand") or "Unknown") == selected_brand]
+        )
+
+        # Group by brand for display
+        by_brand: dict[str, list] = {}
+        for s in filtered_uncovered:
+            b = s.get("brand") or "Unknown"
+            by_brand.setdefault(b, []).append(s)
+
+        st.caption(f"{len(filtered_uncovered)} store(s) with no DM coverage")
+        for brand, brand_stores in sorted(by_brand.items()):
+            st.markdown(f"**{brand}** ({len(brand_stores)})")
+            for s in sorted(brand_stores, key=lambda x: x.get("store_number", "")):
+                st.markdown(
+                    f"&nbsp;&nbsp;&nbsp;• `{s['store_number']}` — {s['name']} "
+                    f"({s.get('city', '')}{',' if s.get('city') else ''} {s.get('state', '')})"
+                )
+
     st.markdown("---")
 
     for u in sorted(mgr_users, key=lambda x: x.get("full_name", "")):
