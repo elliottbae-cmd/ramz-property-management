@@ -4,10 +4,10 @@ for the current client. Uses new multi-tenant module imports.
 """
 
 import streamlit as st
-from database.supabase_client import get_current_user, get_client, has_role
+from database.supabase_client import get_current_user, get_client, get_admin_client, has_role
 from database.tenant import get_effective_client_id, get_current_client
 from database.stores import get_stores, create_store, update_store
-from database.users import get_users_for_client, update_user
+from database.users import get_users_for_client, update_user, create_user_profile
 from database.approvals import get_approval_config, get_threshold
 from database.audit import log_action
 from theme.branding import render_header
@@ -68,6 +68,69 @@ def render():
 def _render_user_management(client_id: str, admin_user: dict):
     st.markdown("### Manage Users")
 
+    stores = get_stores(client_id, active_only=True)
+    store_options = {s["id"]: f"{s['store_number']} — {s['name']}" for s in stores}
+
+    # Add new user
+    with st.expander("+ Add New User"):
+        with st.form("add_user"):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_name = st.text_input("Full Name *", placeholder="Jane Smith")
+                new_email = st.text_input("Email *", placeholder="jane@example.com")
+            with col2:
+                new_password = st.text_input("Temporary Password *", type="password",
+                                             help="User should change this on first login")
+                new_role = st.selectbox(
+                    "Role *", list(CLIENT_ROLES),
+                    format_func=lambda x: CLIENT_ROLE_LABELS.get(x, x),
+                )
+
+            # Store assignment — required for GMs, optional for others
+            store_ids = [""] + list(store_options.keys())
+            new_store_id = st.selectbox(
+                "Assign to Store",
+                options=store_ids,
+                format_func=lambda x: store_options.get(x, "— No store —"),
+                help="Required for GMs. Optional for DMs and above.",
+            )
+
+            if st.form_submit_button("Create User", type="primary", width="stretch"):
+                if not new_name or not new_email or not new_password:
+                    st.error("Name, email, and password are required.")
+                elif new_role == "gm" and not new_store_id:
+                    st.error("GMs must be assigned to a store.")
+                else:
+                    try:
+                        admin_sb = get_admin_client()
+                        auth_result = admin_sb.auth.admin.create_user({
+                            "email": new_email,
+                            "password": new_password,
+                            "email_confirm": True,
+                        })
+                        if not auth_result.user:
+                            st.error("Failed to create auth account.")
+                        else:
+                            profile = {
+                                "id": auth_result.user.id,
+                                "email": new_email,
+                                "full_name": new_name,
+                                "user_tier": "client",
+                                "client_id": client_id,
+                                "client_role": new_role,
+                                "is_active": True,
+                            }
+                            if new_store_id:
+                                profile["store_id"] = new_store_id
+                            create_user_profile(profile)
+                            log_action(client_id, admin_user["id"], "create", "user",
+                                       auth_result.user.id, {"email": new_email, "role": new_role})
+                            st.success(f"User '{new_name}' created! They can log in with their email and temporary password.")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to create user: {e}")
+
+    st.markdown("---")
     users = get_users_for_client(client_id, active_only=False)
 
     if not users:
