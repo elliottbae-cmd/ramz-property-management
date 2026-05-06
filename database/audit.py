@@ -1,6 +1,6 @@
 """Audit log — records all significant actions per client."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from database.supabase_client import get_client
 
 
@@ -72,5 +72,53 @@ def get_audit_log(client_id: str, filters: dict | None = None) -> list[dict]:
 
         query = query.limit(limit)
         return query.execute().data or []
+    except Exception:
+        return []
+
+
+def log_system_alert(action: str, details: dict | None = None) -> None:
+    """Write a system-level alert to the audit log (no client/user scope).
+
+    Uses the admin client so it works even when no user session is active.
+    Failures are silenced — never let audit logging cascade into user errors.
+    """
+    try:
+        from database.supabase_client import get_admin_client
+        sb = get_admin_client()
+        sb.table("audit_log").insert({
+            "client_id": None,
+            "user_id": None,
+            "action": action,
+            "entity_type": "system",
+            "entity_id": "system",
+            "details": details or {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception:
+        pass
+
+
+@st.cache_data(ttl=300)
+def get_recent_system_alerts(action: str, hours: int = 24) -> list[dict]:
+    """Return system-level audit entries matching *action* in the last *hours*.
+
+    Used by the PSP sidebar to surface email limit warnings without
+    running a fresh DB query on every page interaction (cached 5 min).
+    """
+    try:
+        from database.supabase_client import get_admin_client
+        sb = get_admin_client()
+        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        result = (
+            sb.table("audit_log")
+            .select("action, details, created_at")
+            .is_("client_id", "null")
+            .eq("action", action)
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return result.data or []
     except Exception:
         return []

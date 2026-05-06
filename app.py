@@ -48,6 +48,18 @@ render_logo()
 if is_psp_user():
     render_client_switcher()
 
+    # Warn PSP users if SendGrid email limit was hit in the last 24 hours
+    try:
+        from database.audit import get_recent_system_alerts
+        email_alerts = get_recent_system_alerts("email_limit_exceeded", hours=24)
+        if email_alerts:
+            st.sidebar.warning(
+                "⚠️ **SendGrid limit hit** — email notifications are paused. "
+                "[Upgrade at sendgrid.com](https://app.sendgrid.com/settings/billing)"
+            )
+    except Exception:
+        pass
+
 render_user_sidebar()
 
 # ------------------------------------------------------------------

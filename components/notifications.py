@@ -67,10 +67,17 @@ def _send_email(to_emails: list[dict], subject: str, html_body: str) -> bool:
             body = ""
 
         if status == 429:
+            # Log a persistent system alert so PSP sees it in the sidebar
+            try:
+                from database.audit import log_system_alert
+                log_system_alert(
+                    action="email_limit_exceeded",
+                    details={"subject": subject, "recipients": len(to_emails), "status": 429},
+                )
+            except Exception:
+                pass
             raise RuntimeError(
-                "⚠️ SendGrid daily email limit reached — no notifications will be sent "
-                "until the limit resets (midnight UTC). Upgrade your SendGrid plan at "
-                "sendgrid.com to avoid this in production."
+                "Email notification could not be sent — the team has been alerted."
             )
         elif status == 401:
             raise RuntimeError(
