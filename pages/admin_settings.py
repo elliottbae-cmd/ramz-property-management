@@ -125,10 +125,14 @@ def _render_user_management(client_id: str, admin_user: dict):
                             create_user_profile(profile)
                             log_action(client_id, admin_user["id"], "create", "user",
                                        auth_result.user.id, {"email": new_email, "role": new_role})
-                            st.success(f"User '{new_name}' created! They can log in with their email and temporary password.")
+                            st.session_state["user_created_msg"] = f"✅ '{new_name}' created — they can log in immediately with their email and password."
                             st.rerun()
                     except Exception as e:
                         st.error(f"Failed to create user: {e}")
+
+    # Show post-rerun success message outside the form so it persists
+    if "user_created_msg" in st.session_state:
+        st.success(st.session_state.pop("user_created_msg"))
 
     st.markdown("---")
     users = get_users_for_client(client_id, active_only=False)
@@ -137,20 +141,36 @@ def _render_user_management(client_id: str, admin_user: dict):
         st.info("No users found for this client.")
         return
 
-    # Role filter
-    role_filter = st.selectbox(
-        "Filter by Role",
-        ["All"] + list(CLIENT_ROLES),
-        format_func=lambda x: CLIENT_ROLE_LABELS.get(x, x) if x != "All" else "All Roles",
-        key="admin_role_filter",
-    )
+    # Search + role filter
+    col_search, col_role, col_inactive = st.columns([3, 2, 1])
+    with col_search:
+        user_search = st.text_input("Search users", placeholder="Name or email...",
+                                    label_visibility="collapsed")
+    with col_role:
+        role_filter = st.selectbox(
+            "Filter by Role",
+            ["All"] + list(CLIENT_ROLES),
+            format_func=lambda x: CLIENT_ROLE_LABELS.get(x, x) if x != "All" else "All Roles",
+            key="admin_role_filter",
+            label_visibility="collapsed",
+        )
+    with col_inactive:
+        show_inactive_users = st.checkbox("Inactive", value=False)
 
-    if role_filter != "All":
-        users = [u for u in users if u.get("client_role") == role_filter]
+    filtered_users = [
+        u for u in users
+        if (show_inactive_users or u.get("is_active", True))
+        and (role_filter == "All" or u.get("client_role") == role_filter)
+        and (
+            not user_search
+            or user_search.lower() in u.get("full_name", "").lower()
+            or user_search.lower() in u.get("email", "").lower()
+        )
+    ]
 
-    st.caption(f"{len(users)} user(s)")
+    st.caption(f"{len(filtered_users)} of {len(users)} user(s)")
 
-    for u in users:
+    for u in filtered_users:
         role = u.get("client_role", "")
         role_label = CLIENT_ROLE_LABELS.get(role, role)
         active_label = "" if u.get("is_active", True) else " (INACTIVE)"
