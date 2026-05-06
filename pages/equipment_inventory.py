@@ -299,62 +299,68 @@ def _render_all_stores_grouped(equipment: list[dict], stores: list[dict], search
         under_warranty = sum(1 for i in items if i.get("active_warranty"))
         open_tickets_total = sum(i.get("open_ticket_count", 0) for i in items)
 
-        # Store section header
-        badge_parts = [f"{len(items)} items"]
+        # Build store-level expander label with summary badge
+        badge_parts = [f"{len(items)} item{'s' if len(items) != 1 else ''}"]
         if under_warranty:
-            badge_parts.append(f"{under_warranty} under warranty")
+            badge_parts.append(f"{under_warranty} warranted")
         if open_tickets_total:
-            badge_parts.append(f"⚠️ {open_tickets_total} open ticket{'s' if open_tickets_total != 1 else ''}")
+            badge_parts.append(f"⚠️ {open_tickets_total} open")
         badge_text = " · ".join(badge_parts)
 
-        store_label = f"**{store_num} — {store_name}**"
+        store_header = f"🏪 {store_num} — {store_name}"
         if brand:
-            store_label += f"  ·  {brand}"
+            store_header += f"  ·  {brand}"
+        store_header += f"   ({badge_text})"
 
-        st.markdown(f"### 🏪 {store_num} — {store_name}" + (f" ({brand})" if brand else ""))
-        st.caption(badge_text)
+        with st.expander(store_header, expanded=False):
+            # Group by category within this store
+            by_cat: dict[str, list[dict]] = {}
+            for item in items:
+                cat = item.get("category") or "Uncategorized"
+                by_cat.setdefault(cat, []).append(item)
 
-        # Group by category within this store
-        by_cat: dict[str, list[dict]] = {}
-        for item in items:
-            cat = item.get("category") or "Uncategorized"
-            by_cat.setdefault(cat, []).append(item)
+            for cat_name in sorted(by_cat.keys()):
+                cat_items = by_cat[cat_name]
 
-        for cat_name in sorted(by_cat.keys()):
-            cat_items = by_cat[cat_name]
-            st.markdown(f"#### {cat_name} ({len(cat_items)})")
+                # Build category-level expander label with mini badge
+                cat_warranty = sum(1 for i in cat_items if i.get("active_warranty"))
+                cat_open = sum(i.get("open_ticket_count", 0) for i in cat_items)
+                cat_badge_parts = [f"{len(cat_items)} item{'s' if len(cat_items) != 1 else ''}"]
+                if cat_warranty:
+                    cat_badge_parts.append(f"{cat_warranty} warranted")
+                if cat_open:
+                    cat_badge_parts.append(f"⚠️ {cat_open} open")
+                cat_header = f"{cat_name}  ({' · '.join(cat_badge_parts)})"
 
-            for item in cat_items:
-                warranty = item.get("active_warranty")
-                open_cnt = item.get("open_ticket_count", 0)
-                name = item.get("name", "Unknown")
-                mfr = item.get("manufacturer") or ""
-                serial = item.get("serial_number") or ""
-                total_repair_cost = item.get("_total_repair_cost", 0)
+                with st.expander(cat_header, expanded=False):
+                    for item in cat_items:
+                        warranty = item.get("active_warranty")
+                        open_cnt = item.get("open_ticket_count", 0)
+                        name = item.get("name", "Unknown")
+                        mfr = item.get("manufacturer") or ""
+                        serial = item.get("serial_number") or ""
+                        total_repair_cost = item.get("_total_repair_cost", 0)
 
-                # Highlight search term in label
-                label_parts = [f"**{name}**"]
-                if mfr:
-                    label_parts.append(mfr)
-                if serial:
-                    label_parts.append(f"S/N: {serial}")
-                label = " | ".join(label_parts)
+                        label_parts = [f"**{name}**"]
+                        if mfr:
+                            label_parts.append(mfr)
+                        if serial:
+                            label_parts.append(f"S/N: {serial}")
+                        label = " | ".join(label_parts)
 
-                indicators = []
-                if warranty:
-                    indicators.append("✅ Warranty")
-                if open_cnt > 0:
-                    indicators.append(f"⚠️ {open_cnt} open")
-                if total_repair_cost > 0:
-                    indicators.append(format_currency(total_repair_cost) + " spent")
-                indicator_str = "  ·  ".join(indicators)
-                if indicator_str:
-                    label += f"   —   {indicator_str}"
+                        indicators = []
+                        if warranty:
+                            indicators.append("✅ Warranty")
+                        if open_cnt > 0:
+                            indicators.append(f"⚠️ {open_cnt} open")
+                        if total_repair_cost > 0:
+                            indicators.append(format_currency(total_repair_cost) + " spent")
+                        indicator_str = "  ·  ".join(indicators)
+                        if indicator_str:
+                            label += f"   —   {indicator_str}"
 
-                with st.expander(label):
-                    _render_equipment_detail(item)
-
-        st.markdown("---")
+                        with st.expander(label):
+                            _render_equipment_detail(item)
 
 
 def _render_equipment_detail(item: dict):
@@ -471,40 +477,46 @@ def _render_store_equipment_view(equipment: list[dict], store_id: str, stores: l
 
     for cat_name in sorted(categories.keys()):
         items = categories[cat_name]
-        st.markdown(f"#### {cat_name} ({len(items)} items)")
 
-        for item in items:
-            warranty = item.get("active_warranty")
-            open_tickets = item.get("open_ticket_count", 0)
-            name = item.get("name", "Unknown")
-            mfr = item.get("manufacturer") or ""
-            serial = item.get("serial_number") or ""
+        # Build category-level expander label with mini badge
+        cat_warranty = sum(1 for i in items if i.get("active_warranty"))
+        cat_open = sum(i.get("open_ticket_count", 0) for i in items)
+        cat_badge_parts = [f"{len(items)} item{'s' if len(items) != 1 else ''}"]
+        if cat_warranty:
+            cat_badge_parts.append(f"{cat_warranty} warranted")
+        if cat_open:
+            cat_badge_parts.append(f"⚠️ {cat_open} open")
+        cat_header = f"{cat_name}  ({' · '.join(cat_badge_parts)})"
 
-            # Use pre-fetched repair cost if available; fall back to query
-            total_repair_cost = item.get("_total_repair_cost", 0)
+        with st.expander(cat_header, expanded=False):
+            for item in items:
+                warranty = item.get("active_warranty")
+                open_tickets = item.get("open_ticket_count", 0)
+                name = item.get("name", "Unknown")
+                mfr = item.get("manufacturer") or ""
+                serial = item.get("serial_number") or ""
+                total_repair_cost = item.get("_total_repair_cost", 0)
 
-            # Build label
-            parts = [f"**{name}**"]
-            if mfr:
-                parts.append(mfr)
-            if serial:
-                parts.append(f"S/N: {serial}")
-            label = " | ".join(parts)
+                # Build label
+                parts = [f"**{name}**"]
+                if mfr:
+                    parts.append(mfr)
+                if serial:
+                    parts.append(f"S/N: {serial}")
+                label = " | ".join(parts)
 
-            # Status indicators
-            indicators = []
-            if warranty:
-                indicators.append("Warranty: Active")
-            if open_tickets > 0:
-                indicators.append(f"Open Tickets: {open_tickets}")
-            if total_repair_cost > 0:
-                indicators.append(f"Repair Cost: {format_currency(total_repair_cost)}")
-            indicator_text = " | ".join(indicators) if indicators else ""
+                # Status indicators
+                indicators = []
+                if warranty:
+                    indicators.append("✅ Warranty")
+                if open_tickets > 0:
+                    indicators.append(f"⚠️ {open_tickets} open")
+                if total_repair_cost > 0:
+                    indicators.append(f"{format_currency(total_repair_cost)} spent")
+                indicator_text = "  ·  ".join(indicators) if indicators else ""
 
-            with st.expander(f"{label}  {('-- ' + indicator_text) if indicator_text else ''}"):
-                _render_equipment_detail(item)
-
-        st.markdown("---")
+                with st.expander(f"{label}  {('   —   ' + indicator_text) if indicator_text else ''}"):
+                    _render_equipment_detail(item)
 
 
 # ------------------------------------------------------------------
