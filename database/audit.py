@@ -1,5 +1,6 @@
 """Audit log — records all significant actions per client."""
 
+import streamlit as st
 from datetime import datetime, timezone, timedelta
 from database.supabase_client import get_client
 
