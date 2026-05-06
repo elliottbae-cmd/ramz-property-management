@@ -55,10 +55,37 @@ def _send_email(to_emails: list[dict], subject: str, html_body: str) -> bool:
 
         sg = SendGridAPIClient(SENDGRID_API_KEY)
         response = sg.send(message)
-        success = response.status_code in (200, 202)
-        if not success:
-            raise RuntimeError(f"SendGrid returned {response.status_code}")
-        return success
+        status = response.status_code
+
+        if status in (200, 202):
+            return True
+
+        # Parse SendGrid error body for detail where available
+        try:
+            body = response.body.decode() if isinstance(response.body, bytes) else str(response.body)
+        except Exception:
+            body = ""
+
+        if status == 429:
+            raise RuntimeError(
+                "⚠️ SendGrid daily email limit reached — no notifications will be sent "
+                "until the limit resets (midnight UTC). Upgrade your SendGrid plan at "
+                "sendgrid.com to avoid this in production."
+            )
+        elif status == 401:
+            raise RuntimeError(
+                "SendGrid API key is invalid or expired. "
+                "Update SENDGRID_API_KEY in Streamlit Cloud secrets."
+            )
+        elif status == 403:
+            raise RuntimeError(
+                "SendGrid rejected the send — your sender identity may not be verified. "
+                "Check sendgrid.com → Settings → Sender Authentication."
+            )
+        else:
+            raise RuntimeError(
+                f"SendGrid error {status} — email not sent. Details: {body[:200]}"
+            )
     except Exception:
         raise
 
