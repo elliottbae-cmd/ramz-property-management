@@ -158,24 +158,27 @@ def _render_store_management(client_id: str, admin_user: dict):
                 elif not phone or not phone.strip():
                     st.error("Phone number is required.")
                 else:
-                    result = create_store({
-                        "client_id": client_id,
-                        "store_number": store_num,
-                        "name": name,
-                        "phone": phone.strip(),
-                        "address": address or None,
-                        "city": city or None,
-                        "state": state or None,
-                        "region": region or None,
-                        "brand": brand,
-                    })
-                    if result:
-                        log_action(client_id, admin_user["id"], "create", "store", result["id"],
-                                   {"name": name})
-                        st.success(f"Store '{name}' added!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to add store.")
+                    try:
+                        result = create_store({
+                            "client_id": client_id,
+                            "store_number": store_num,
+                            "name": name,
+                            "phone": phone.strip(),
+                            "address": address or None,
+                            "city": city or None,
+                            "state": state or None,
+                            "region": region or None,
+                            "brand": brand,
+                        })
+                        if result:
+                            log_action(client_id, admin_user["id"], "create", "store", result["id"],
+                                       {"name": name})
+                            st.success(f"Store '{name}' added!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to add store — no data returned.")
+                    except Exception as e:
+                        st.error(f"Failed to add store: {e}")
 
     # List stores
     st.caption(f"{len(stores)} store(s)")

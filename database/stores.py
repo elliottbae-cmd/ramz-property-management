@@ -43,13 +43,11 @@ def create_store(data: dict) -> dict | None:
     """Insert a new store record.
 
     *data* should include at minimum: client_id, store_number, name.
+    Raises on DB error so the caller can surface the message to the UI.
     """
-    try:
-        sb = get_client()
-        result = sb.table("stores").insert(data).execute()
-        return result.data[0] if result.data else None
-    except Exception:
-        return None
+    sb = get_client()
+    result = sb.table("stores").insert(data).execute()
+    return result.data[0] if result.data else None
 
 
 def update_store(store_id: str, data: dict) -> dict | None:
