@@ -21,17 +21,28 @@ def get_supabase_client() -> Client:
 def get_client() -> Client:
     """Primary accessor used by all database modules.
 
-    Returns a Supabase client with the current user's auth token attached.
-    Creates a fresh client instance per call so that user-specific JWTs
-    never contaminate the shared @st.cache_resource client used by other
-    sessions running concurrently on Streamlit Cloud.
+    Returns a per-session Supabase client with the current user's JWT attached.
+    Cached in st.session_state (per-user, per-browser-session) so the client
+    is created once per login rather than once per DB call. Rebuilds automatically
+    if the access token changes (e.g. after a token refresh).
     """
     token = st.session_state.get("access_token")
-    if token:
-        client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        client.postgrest.auth(token)
-        return client
-    return get_supabase_client()
+    if not token:
+        return get_supabase_client()
+
+    # Reuse the cached client as long as the token hasn't changed
+    if (
+        st.session_state.get("_sb_client_token") == token
+        and "_sb_client" in st.session_state
+    ):
+        return st.session_state["_sb_client"]
+
+    # Token is new or changed — build a fresh client and cache it
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    client.postgrest.auth(token)
+    st.session_state["_sb_client"] = client
+    st.session_state["_sb_client_token"] = token
+    return client
 
 
 @st.cache_resource
