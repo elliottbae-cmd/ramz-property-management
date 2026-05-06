@@ -7,7 +7,7 @@ import streamlit as st
 from database.supabase_client import get_current_user, get_client, get_admin_client, has_role
 from database.tenant import get_effective_client_id, get_current_client
 from database.stores import get_stores, create_store, update_store
-from database.users import get_users_for_client, update_user, create_user_profile
+from database.users import get_users_for_client, update_user, create_user_profile, clear_users_cache
 from database.approvals import get_approval_config, get_threshold
 from database.audit import log_action
 from theme.branding import render_header
@@ -125,6 +125,7 @@ def _render_user_management(client_id: str, admin_user: dict):
                             create_user_profile(profile)
                             log_action(client_id, admin_user["id"], "create", "user",
                                        auth_result.user.id, {"email": new_email, "role": new_role})
+                            clear_users_cache()
                             st.session_state["user_created_msg"] = f"✅ '{new_name}' created — they can log in immediately with their email and password."
                             st.rerun()
                     except Exception as e:
@@ -201,6 +202,7 @@ def _render_user_management(client_id: str, admin_user: dict):
                     if result:
                         log_action(client_id, admin_user["id"], "update", "user", u["id"],
                                    {"role_change": f"{role} -> {new_role}"})
+                        clear_users_cache()
                         st.success(f"Updated {u['full_name']}!")
                         st.rerun()
                     else:

@@ -51,6 +51,15 @@ def get_users_for_client(client_id: str, active_only: bool = True) -> list[dict]
     return _fetch_users_for_client(client_id, active_only)
 
 
+def clear_users_cache() -> None:
+    """Invalidate the users cache so the next call fetches fresh data.
+
+    Call this after creating, updating, or deactivating a user so the
+    updated list appears immediately without requiring an app reboot.
+    """
+    _fetch_users_for_client.clear()
+
+
 def create_user_profile(data: dict) -> dict | None:
     """Insert a new row into the users table.
 
