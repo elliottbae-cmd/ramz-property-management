@@ -377,6 +377,10 @@ def _render_ticket_review(ticket: dict, user: dict, client_id: str):
             try:
                 _complete_review(ticket, user, client_id, decision, ai_result, install_date)
             except Exception as e:
+                # Re-raise Streamlit control-flow exceptions (RerunException, StopException)
+                # so that st.rerun() calls inside _complete_* actually take effect.
+                if "Rerun" in type(e).__name__ or "Stop" in type(e).__name__:
+                    raise
                 st.error(f"Error completing review: {e}")
                 import traceback
                 st.code(traceback.format_exc())
