@@ -479,7 +479,14 @@ def notify_ticket_rejected(ticket: dict, client_id: str, notes: str = "") -> boo
     )
 
 
-def notify_work_order_issued(ticket: dict, client_id: str, contractor_name: str) -> bool:
+def notify_work_order_issued(
+    ticket: dict,
+    client_id: str,
+    contractor_name: str,
+    scheduled_date=None,
+    time_start=None,
+    time_end=None,
+) -> bool:
     """Email the store GM when a work order is issued so they expect the contractor.
 
     Triggered: pages/ticket_dashboard.py after create_work_order succeeds.
@@ -497,17 +504,47 @@ def notify_work_order_issued(ticket: dict, client_id: str, contractor_name: str)
     store_display = f"{store_num} – {store_name_str}".strip(" –") or "—"
     app_link = APP_URL or "#"
 
+    def _fmt_time(t):
+        try:
+            suffix = "AM" if t.hour < 12 else "PM"
+            hour12 = t.hour % 12 or 12
+            return f"{hour12}:{t.minute:02d} {suffix}"
+        except Exception:
+            return str(t)
+
+    # Build schedule rows if any scheduling info was provided
+    schedule_rows = ""
+    if scheduled_date:
+        try:
+            date_str = scheduled_date.strftime("%A, %B %-d, %Y")
+        except ValueError:
+            # Windows strftime doesn't support %-d
+            date_str = scheduled_date.strftime("%A, %B %d, %Y").replace(" 0", " ")
+        schedule_rows += _detail_row("On-Site Date", f"<strong>{date_str}</strong>")
+
+    if time_start and time_end:
+        window = f"{_fmt_time(time_start)} – {_fmt_time(time_end)}"
+        schedule_rows += _detail_row("Arrival Window", f"<strong>{window}</strong>")
+    elif time_start:
+        schedule_rows += _detail_row("Est. Arrival", f"<strong>{_fmt_time(time_start)}</strong>")
+
+    intro = (
+        "A work order has been issued for your repair request. "
+        "Please see the contractor and scheduled visit details below."
+        if schedule_rows else
+        "A work order has been issued for your repair request. "
+        "The contractor below will be in contact to schedule the repair."
+    )
+
     body_rows = "".join([
-        _intro_row(
-            "A work order has been issued for your repair request. "
-            "The contractor below will be in contact to schedule the repair."
-        ),
+        _intro_row(intro),
         _divider_row(),
         _detail_row("Ticket #", f"<strong>#{ticket_num}</strong>"),
         _ticket_core_rows(ticket),
         _divider_row(),
         _detail_row("Contractor",
                     f"<strong style='color:#333;'>{contractor_name or '—'}</strong>"),
+        schedule_rows,
     ])
 
     html = _base_html(

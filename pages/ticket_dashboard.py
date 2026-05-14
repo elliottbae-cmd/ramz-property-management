@@ -190,7 +190,7 @@ def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: 
     )
     wo_amount = st.number_input("Work Order Amount ($)", min_value=0.0, step=50.0, key=f"wo_amount_{ticket_id}")
 
-    # Scheduled on-site date and time range
+    # Scheduled on-site date and arrival window
     st.markdown("**Scheduled On-Site Visit**")
     col_date, col_start, col_end = st.columns(3)
     with col_date:
@@ -202,15 +202,15 @@ def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: 
         )
     with col_start:
         wo_time_start = st.time_input(
-            "Arrival Time",
+            "Est. Earliest Arrival",
             value=datetime.time(8, 0),
             key=f"wo_time_start_{ticket_id}",
             step=900,  # 15-minute intervals
         )
     with col_end:
         wo_time_end = st.time_input(
-            "Departure Time",
-            value=datetime.time(17, 0),
+            "Est. Latest Arrival",
+            value=datetime.time(9, 0),
             key=f"wo_time_end_{ticket_id}",
             step=900,
         )
@@ -235,7 +235,12 @@ def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: 
             contractor_display = contractor_options.get(selected_contractor, "")
             # Strip rating suffix e.g. "ABC Plumbing (4.5/5 · matched)" → "ABC Plumbing"
             contractor_name = contractor_display.split(" (")[0].strip()
-            notify_work_order_issued(ticket, client_id, contractor_name)
+            notify_work_order_issued(
+                ticket, client_id, contractor_name,
+                scheduled_date=wo_scheduled_date,
+                time_start=wo_time_start,
+                time_end=wo_time_end,
+            )
             get_work_orders.clear()
             st.success("Work order issued!")
             st.rerun()
