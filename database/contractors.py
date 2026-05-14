@@ -74,28 +74,31 @@ def create_contractor(data: dict) -> dict | None:
 
     *data* should include: company_name, and optionally trades, phone,
     email, trades, service_cities, service_states, service_zip_codes, etc.
+    Raises on DB error so the caller can surface the message to the user.
     """
-    try:
-        sb = get_client()
-        result = sb.table("contractors").insert(data).execute()
-        return result.data[0] if result.data else None
-    except Exception:
-        return None
+    sb = get_client()
+    result = sb.table("contractors").insert(data).execute()
+    return result.data[0] if result.data else None
 
 
 def update_contractor(contractor_id: str, data: dict) -> dict | None:
-    """Update an existing contractor."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("contractors")
-            .update(data)
-            .eq("id", contractor_id)
-            .execute()
-        )
-        return result.data[0] if result.data else None
-    except Exception:
-        return None
+    """Update an existing contractor.
+
+    Raises on DB error so the caller can surface the message to the user.
+    """
+    sb = get_client()
+    result = (
+        sb.table("contractors")
+        .update(data)
+        .eq("id", contractor_id)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def clear_contractors_cache() -> None:
+    """Invalidate the contractors cache after a create or update."""
+    _fetch_contractors.clear()
 
 
 # ------------------------------------------------------------------

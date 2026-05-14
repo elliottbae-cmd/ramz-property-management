@@ -7,7 +7,8 @@ import streamlit as st
 from database.supabase_client import get_current_user
 from database.contractors import (
     get_contractors, get_contractor, create_contractor,
-    update_contractor, get_contractor_reviews, add_review,
+    update_contractor, clear_contractors_cache,
+    get_contractor_reviews, add_review,
 )
 from theme.branding import render_header
 from utils.constants import TRADE_TYPES, US_STATES
@@ -129,23 +130,27 @@ def _render_add_contractor_form():
             else:
                 city_list = [c.strip() for c in service_cities.split(",") if c.strip()] if service_cities else []
                 zip_list = [z.strip() for z in service_zips.split(",") if z.strip()] if service_zips else []
-                result = create_contractor({
-                    "company_name": company,
-                    "contact_name": contact or None,
-                    "phone": phone or None,
-                    "email": email or None,
-                    "trades": trades,
-                    "service_cities": city_list,
-                    "service_states": service_states,
-                    "service_zip_codes": zip_list,
-                    "is_preferred": is_preferred,
-                    "notes": notes or None,
-                })
-                if result:
-                    st.success(f"Contractor '{company}' added!")
-                    st.rerun()
-                else:
-                    st.error("Failed to add contractor.")
+                try:
+                    result = create_contractor({
+                        "company_name": company,
+                        "contact_name": contact or None,
+                        "phone": phone or None,
+                        "email": email or None,
+                        "trades": trades,
+                        "service_cities": city_list,
+                        "service_states": service_states,
+                        "service_zip_codes": zip_list,
+                        "is_preferred": is_preferred,
+                        "notes": notes or None,
+                    })
+                    if result:
+                        clear_contractors_cache()
+                        st.success(f"Contractor '{company}' added!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to add contractor — no data returned. Check the browser console for details.")
+                except Exception as e:
+                    st.error(f"Failed to add contractor: {e}")
 
 
 def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
@@ -225,23 +230,27 @@ def _render_contractor_detail(contractor_id: str, user: dict, can_manage: bool):
                 if st.form_submit_button("Save Changes", width="stretch"):
                     city_list = [c.strip() for c in cities_val.split(",") if c.strip()] if cities_val else []
                     zip_list = [z.strip() for z in zips_val.split(",") if z.strip()] if zips_val else []
-                    result = update_contractor(contractor_id, {
-                        "company_name": company,
-                        "contact_name": contact or None,
-                        "phone": phone or None,
-                        "email": email_val or None,
-                        "trades": trades_val,
-                        "service_cities": city_list,
-                        "service_states": states_val,
-                        "service_zip_codes": zip_list,
-                        "is_preferred": is_preferred,
-                        "notes": notes or None,
-                    })
-                    if result:
-                        st.success("Contractor updated!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to update contractor.")
+                    try:
+                        result = update_contractor(contractor_id, {
+                            "company_name": company,
+                            "contact_name": contact or None,
+                            "phone": phone or None,
+                            "email": email_val or None,
+                            "trades": trades_val,
+                            "service_cities": city_list,
+                            "service_states": states_val,
+                            "service_zip_codes": zip_list,
+                            "is_preferred": is_preferred,
+                            "notes": notes or None,
+                        })
+                        if result:
+                            clear_contractors_cache()
+                            st.success("Contractor updated!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to update contractor — no data returned.")
+                    except Exception as e:
+                        st.error(f"Failed to update contractor: {e}")
 
         with tab_status:
             if contractor.get("is_active"):
