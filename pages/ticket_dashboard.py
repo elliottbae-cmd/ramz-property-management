@@ -5,6 +5,7 @@ Uses new multi-tenant module imports.
 """
 
 import streamlit as st
+import datetime
 from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
@@ -188,6 +189,32 @@ def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: 
         key=f"wo_contractor_{ticket_id}",
     )
     wo_amount = st.number_input("Work Order Amount ($)", min_value=0.0, step=50.0, key=f"wo_amount_{ticket_id}")
+
+    # Scheduled on-site date and time range
+    st.markdown("**Scheduled On-Site Visit**")
+    col_date, col_start, col_end = st.columns(3)
+    with col_date:
+        wo_scheduled_date = st.date_input(
+            "Date",
+            value=None,
+            key=f"wo_date_{ticket_id}",
+            help="Date the contractor will be on site",
+        )
+    with col_start:
+        wo_time_start = st.time_input(
+            "Arrival Time",
+            value=datetime.time(8, 0),
+            key=f"wo_time_start_{ticket_id}",
+            step=900,  # 15-minute intervals
+        )
+    with col_end:
+        wo_time_end = st.time_input(
+            "Departure Time",
+            value=datetime.time(17, 0),
+            key=f"wo_time_end_{ticket_id}",
+            step=900,
+        )
+
     wo_notes = st.text_area("Notes", key=f"wo_notes_{ticket_id}", placeholder="Special instructions for the contractor...")
 
     if st.button("Issue Work Order", type="primary", width="stretch", key=f"wo_submit_{ticket_id}"):
@@ -197,6 +224,9 @@ def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: 
             "contractor_id": selected_contractor,
             "amount": wo_amount,
             "notes": wo_notes or None,
+            "scheduled_date": wo_scheduled_date.isoformat() if wo_scheduled_date else None,
+            "scheduled_time_start": wo_time_start.strftime("%H:%M:%S") if wo_time_start else None,
+            "scheduled_time_end": wo_time_end.strftime("%H:%M:%S") if wo_time_end else None,
         })
         if wo:
             update_ticket(ticket_id, {"status": "in_progress"})
