@@ -31,6 +31,12 @@ def render():
         return
 
     # ---- Filters ----
+    name_search = st.text_input(
+        "🔍 Search by Name",
+        placeholder="Search company or contact name...",
+        key="contractor_search",
+    )
+
     col1, col2, col3 = st.columns(3)
     with col1:
         trade_filter = st.selectbox("Filter by Trade", ["All"] + TRADE_TYPES)
@@ -54,6 +60,15 @@ def render():
             filters["active_only"] = False
 
     contractors = get_contractors(filters)
+
+    # Apply name search client-side after DB fetch
+    if name_search:
+        q = name_search.lower().strip()
+        contractors = [
+            c for c in contractors
+            if q in (c.get("company_name") or "").lower()
+            or q in (c.get("contact_name") or "").lower()
+        ]
 
     # ---- Add New Contractor (PSP users only) ----
     if can_manage:
