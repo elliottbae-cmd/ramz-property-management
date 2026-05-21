@@ -160,16 +160,40 @@ def get_ticket_comments(ticket_id: str) -> list[dict]:
 
 @st.cache_data(ttl=120)
 def _fetch_ticket_comments(ticket_id: str) -> list[dict]:
-    """Cached comment fetch — raises on error so failures are never cached."""
+    """Cached comment fetch — raises on error so failures are never cached.
+
+    Resolves commenter names separately (same pattern as get_ticket) to avoid
+    the PostgREST cross-schema join issue with auth.users vs public.users.
+    """
     sb = get_client()
     result = (
         sb.table("ticket_comments")
-        .select("*, users(full_name)")
+        .select("*")
         .eq("ticket_id", ticket_id)
         .order("created_at")
         .execute()
     )
-    return result.data or []
+    comments = result.data or []
+
+    # Resolve full_name for each comment from public.users
+    for comment in comments:
+        uid = comment.get("user_id")
+        if uid:
+            try:
+                user_result = (
+                    sb.table("users")
+                    .select("full_name")
+                    .eq("id", uid)
+                    .single()
+                    .execute()
+                )
+                comment["users"] = user_result.data or {}
+            except Exception:
+                comment["users"] = {}
+        else:
+            comment["users"] = {}
+
+    return comments
 
 
 def clear_comments_cache() -> None:
