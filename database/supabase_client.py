@@ -244,8 +244,12 @@ def is_psp_user() -> bool:
 # ------------------------------------------------------------------
 
 def upload_photo(file_bytes: bytes, file_name: str, ticket_id: str) -> str:
-    """Upload a photo to Supabase Storage and return the public URL."""
-    sb = get_supabase_client()
+    """Upload a photo to Supabase Storage and return the public URL.
+
+    Uses the admin client so the upload is not blocked by storage RLS
+    (the user JWT is only set on PostgREST, not on the storage client).
+    """
+    sb = get_admin_client()
     path = f"tickets/{ticket_id}/{file_name}"
     sb.storage.from_("ticket-photos").upload(path, file_bytes)
     url = sb.storage.from_("ticket-photos").get_public_url(path)
