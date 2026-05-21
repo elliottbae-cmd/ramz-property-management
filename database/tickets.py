@@ -147,21 +147,34 @@ def update_ticket(ticket_id: str, data: dict) -> dict | None:
 # Comments
 # ------------------------------------------------------------------
 
-@st.cache_data(ttl=120)
 def get_ticket_comments(ticket_id: str) -> list[dict]:
-    """Get comments for a ticket, chronological order."""
+    """Get comments for a ticket, chronological order.
+
+    Wraps the cached helper so errors are never cached as empty lists.
+    """
     try:
-        sb = get_client()
-        result = (
-            sb.table("ticket_comments")
-            .select("*, users(full_name)")
-            .eq("ticket_id", ticket_id)
-            .order("created_at")
-            .execute()
-        )
-        return result.data or []
+        return _fetch_ticket_comments(ticket_id)
     except Exception:
         return []
+
+
+@st.cache_data(ttl=120)
+def _fetch_ticket_comments(ticket_id: str) -> list[dict]:
+    """Cached comment fetch — raises on error so failures are never cached."""
+    sb = get_client()
+    result = (
+        sb.table("ticket_comments")
+        .select("*, users(full_name)")
+        .eq("ticket_id", ticket_id)
+        .order("created_at")
+        .execute()
+    )
+    return result.data or []
+
+
+def clear_comments_cache() -> None:
+    """Invalidate the comments cache after an add."""
+    _fetch_ticket_comments.clear()
 
 
 @st.cache_data(ttl=120)
@@ -206,19 +219,18 @@ def add_comment(ticket_id: str, user_id: str, comment: str,
     ----------
     is_internal : bool
         If True the comment is only visible to PSP and elevated client roles.
+
+    Raises on DB error so the caller can surface the real message.
     """
-    try:
-        sb = get_client()
-        result = (
-            sb.table("ticket_comments")
-            .insert({
-                "ticket_id": ticket_id,
-                "user_id": user_id,
-                "comment": comment,
-                "is_internal": is_internal,
-            })
-            .execute()
-        )
-        return result.data[0] if result.data else None
-    except Exception:
-        return None
+    sb = get_client()
+    result = (
+        sb.table("ticket_comments")
+        .insert({
+            "ticket_id": ticket_id,
+            "user_id": user_id,
+            "comment": comment,
+            "is_internal": is_internal,
+        })
+        .execute()
+    )
+    return result.data[0] if result.data else None

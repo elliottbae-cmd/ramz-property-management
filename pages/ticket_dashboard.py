@@ -9,7 +9,7 @@ import datetime
 from database.supabase_client import get_current_user, get_client
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
-from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment, update_ticket
+from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment, update_ticket, clear_comments_cache
 from database.contractors import get_contractors
 from utils.contractor_matcher import find_matching_contractors
 from database.work_orders import create_work_order, get_work_orders
@@ -521,12 +521,18 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
         is_internal = st.checkbox("Internal note (visible to management only)", value=True, key="mgmt_internal")
         if st.button("Post Comment", key="post_mgmt_comment", width="stretch"):
             if new_comment and new_comment.strip():
-                result = add_comment(ticket_id, user["id"], new_comment.strip(), is_internal=is_internal)
-                if result:
-                    st.success("Comment added!")
-                    st.rerun()
-                else:
-                    st.error("Failed to add comment.")
+                try:
+                    result = add_comment(ticket_id, user["id"], new_comment.strip(), is_internal=is_internal)
+                    if result:
+                        clear_comments_cache()
+                        st.success("Comment added!")
+                        st.rerun()
+                    else:
+                        st.error("Comment insert returned no data — check DB logs.")
+                except Exception as e:
+                    if "Rerun" in type(e).__name__ or "Stop" in type(e).__name__:
+                        raise
+                    st.error(f"Failed to add comment: {e}")
 
     with tab_closeout:
         current_status = ticket.get("status", "")
