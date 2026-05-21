@@ -22,19 +22,19 @@ def _mime_type(filename: str) -> str:
 
 
 def upload_document(file_bytes: bytes, file_name: str, ticket_id: str) -> str | None:
-    """Upload a file to Supabase Storage and return the public URL."""
-    try:
-        sb = get_client()
-        path = f"{ticket_id}/{file_name}"
-        sb.storage.from_(BUCKET).upload(
-            path,
-            file_bytes,
-            {"content-type": _mime_type(file_name), "upsert": "true"},
-        )
-        result = sb.storage.from_(BUCKET).get_public_url(path)
-        return result
-    except Exception:
-        return None
+    """Upload a file to Supabase Storage and return the public URL.
+
+    Raises on error so the caller can surface the real message.
+    """
+    sb = get_client()
+    path = f"{ticket_id}/{file_name}"
+    sb.storage.from_(BUCKET).upload(
+        path,
+        file_bytes,
+        {"content-type": _mime_type(file_name), "upsert": "true"},
+    )
+    result = sb.storage.from_(BUCKET).get_public_url(path)
+    return result
 
 
 def save_document(
@@ -46,26 +46,24 @@ def save_document(
     uploaded_by: str,
     notes: str = "",
 ) -> dict | None:
-    """Upload file to storage and insert a record into ticket_documents."""
+    """Upload file to storage and insert a record into ticket_documents.
+
+    Raises on error so the caller can surface the real message.
+    """
     url = upload_document(file_bytes, file_name, ticket_id)
-    if not url:
-        return None
-    try:
-        sb = get_client()
-        row = {
-            "ticket_id": ticket_id,
-            "client_id": client_id,
-            "document_type": document_type,
-            "file_name": file_name,
-            "file_url": url,
-            "file_size_bytes": len(file_bytes),
-            "uploaded_by": uploaded_by,
-            "notes": notes or None,
-        }
-        result = sb.table("ticket_documents").insert(row).execute()
-        return result.data[0] if result.data else None
-    except Exception:
-        return None
+    sb = get_client()
+    row = {
+        "ticket_id": ticket_id,
+        "client_id": client_id,
+        "document_type": document_type,
+        "file_name": file_name,
+        "file_url": url,
+        "file_size_bytes": len(file_bytes),
+        "uploaded_by": uploaded_by,
+        "notes": notes or None,
+    }
+    result = sb.table("ticket_documents").insert(row).execute()
+    return result.data[0] if result.data else None
 
 
 @st.cache_data(ttl=60)

@@ -72,22 +72,26 @@ def render_document_upload(
             key=f"doc_save_{ticket_id}_{label.replace(' ', '_')}",
             width="stretch",
         ):
-            result = save_document(
-                file_bytes=file_bytes,
-                file_name=uploaded_file.name,
-                ticket_id=ticket_id,
-                client_id=client_id,
-                document_type=selected_type,
-                uploaded_by=user_id,
-                notes=notes,
-            )
-            if result:
-                st.success(f"{type_options.get(selected_type, 'Document')} saved: **{uploaded_file.name}**")
-                # Clear the cache so the document list refreshes
-                get_ticket_documents.clear()
-                st.rerun()
-            else:
-                st.error("Failed to save document. Check that the 'ticket-documents' storage bucket exists in Supabase.")
+            try:
+                result = save_document(
+                    file_bytes=file_bytes,
+                    file_name=uploaded_file.name,
+                    ticket_id=ticket_id,
+                    client_id=client_id,
+                    document_type=selected_type,
+                    uploaded_by=user_id,
+                    notes=notes,
+                )
+                if result:
+                    st.success(f"{type_options.get(selected_type, 'Document')} saved: **{uploaded_file.name}**")
+                    get_ticket_documents.clear()
+                    st.rerun()
+                else:
+                    st.error("Upload failed — no data returned. Check Supabase Storage logs.")
+            except Exception as e:
+                if "Rerun" in type(e).__name__ or "Stop" in type(e).__name__:
+                    raise
+                st.error(f"Upload failed: {e}")
 
 
 def render_document_list(ticket_id: str) -> None:
