@@ -1,7 +1,7 @@
 """Ticket document storage — estimates, invoices, warranty docs, etc."""
 
 import streamlit as st
-from database.supabase_client import get_client
+from database.supabase_client import get_client, get_admin_client
 
 BUCKET = "ticket-documents"
 
@@ -24,9 +24,11 @@ def _mime_type(filename: str) -> str:
 def upload_document(file_bytes: bytes, file_name: str, ticket_id: str) -> str | None:
     """Upload a file to Supabase Storage and return the public URL.
 
+    Uses the admin client for storage so the upload is not blocked by RLS
+    (get_client() only sets the JWT on PostgREST, not on the storage client).
     Raises on error so the caller can surface the real message.
     """
-    sb = get_client()
+    sb = get_admin_client()
     path = f"{ticket_id}/{file_name}"
     sb.storage.from_(BUCKET).upload(
         path,
