@@ -140,6 +140,7 @@ TRADE_TYPES = [
     "BOH (Back of House)",
     "FOH (Front of House)",
     "HVAC",
+    "Hoods",
     "Roof",
     "Parking Lot",
     "Building Exterior",
