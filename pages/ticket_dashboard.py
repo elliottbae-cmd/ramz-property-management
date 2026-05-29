@@ -235,12 +235,15 @@ def _render_work_order_form(ticket: dict, ticket_id: str, client_id: str, user: 
             contractor_display = contractor_options.get(selected_contractor, "")
             # Strip rating suffix e.g. "ABC Plumbing (4.5/5 · matched)" → "ABC Plumbing"
             contractor_name = contractor_display.split(" (")[0].strip()
-            notify_work_order_issued(
-                ticket, client_id, contractor_name,
-                scheduled_date=wo_scheduled_date,
-                time_start=wo_time_start,
-                time_end=wo_time_end,
-            )
+            try:
+                notify_work_order_issued(
+                    ticket, client_id, contractor_name,
+                    scheduled_date=wo_scheduled_date,
+                    time_start=wo_time_start,
+                    time_end=wo_time_end,
+                )
+            except Exception as _email_err:
+                st.warning(f"⚠️ Work order email could not be sent: {_email_err}")
             get_work_orders.clear()
             st.success("Work order issued!")
             st.rerun()
@@ -424,8 +427,12 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
                         chain = initiate_approval_chain(ticket_id, client_id, new_bid)
                         if chain:
                             update_ticket(ticket_id, {"status": "pending_approval"})
-                            notify_approval_needed(ticket, new_bid, client_id)
-                            st.success(f"Bid of {format_currency(new_bid)} saved — approval request sent to DM.")
+                            try:
+                                notify_approval_needed(ticket, new_bid, client_id)
+                                st.success(f"Bid of {format_currency(new_bid)} saved — approval request sent to DM.")
+                            except Exception as _email_err:
+                                st.success(f"Bid of {format_currency(new_bid)} saved — approval chain created.")
+                                st.warning(f"⚠️ Approval email could not be sent: {_email_err}")
                         else:
                             st.success(f"Bid saved: {format_currency(new_bid)}")
                     else:
