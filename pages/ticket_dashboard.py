@@ -6,7 +6,7 @@ Uses new multi-tenant module imports.
 
 import streamlit as st
 import datetime
-from database.supabase_client import get_current_user, get_client
+from database.supabase_client import get_current_user, get_client, is_psp_user
 from database.tenant import get_effective_client_id
 from database.stores import get_stores_for_user
 from database.tickets import get_tickets_for_client, get_ticket, get_ticket_comments, get_ticket_photos, get_ticket_approvals, add_comment, update_ticket, clear_comments_cache
@@ -268,6 +268,64 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
     approvals = get_ticket_approvals(ticket_id)
 
     render_ticket_detail(ticket, photos, comments, approvals)
+
+    # ---- Unlinked Equipment Description (PSP only) ----
+    equip_desc = ticket.get("equipment_description")
+    if equip_desc and not ticket.get("equipment_id") and is_psp_user():
+        st.markdown("---")
+        st.warning(
+            f"⚠️ **Equipment not in inventory:** {equip_desc}  \n"
+            "Review the description and add to inventory if the data is correct."
+        )
+        with st.expander("➕ Add this equipment to inventory"):
+            from database.equipment import create_equipment
+            # Pre-parse the description parts
+            desc_parts = {p.split(": ", 1)[0].strip(): p.split(": ", 1)[1].strip()
+                          for p in equip_desc.split(" | ") if ": " in p}
+            equip_name_default = equip_desc.split(" | ")[0].strip()
+
+            with st.form(f"add_inv_{ticket_id}"):
+                inv_name = st.text_input("Equipment Name *", value=equip_name_default)
+                inv_make = st.text_input("Make / Manufacturer", value=desc_parts.get("Make", ""))
+                inv_model = st.text_input("Model", value=desc_parts.get("Model", ""))
+                inv_serial = st.text_input("Serial Number", value=desc_parts.get("S/N", ""))
+                inv_category = st.text_input("Category", value=ticket.get("category", ""))
+
+                if st.form_submit_button("Add to Inventory & Link Ticket", type="primary", width="stretch"):
+                    if not inv_name.strip():
+                        st.error("Equipment name is required.")
+                    else:
+                        eq_data = {
+                            "store_id": ticket["store_id"],
+                            "name": inv_name.strip(),
+                            "category": inv_category.strip() or ticket.get("category", ""),
+                        }
+                        if inv_make.strip():
+                            eq_data["manufacturer"] = inv_make.strip()
+                        if inv_model.strip():
+                            eq_data["model"] = inv_model.strip()
+                        if inv_serial.strip():
+                            eq_data["serial_number"] = inv_serial.strip()
+                        try:
+                            new_eq = create_equipment(eq_data)
+                            if new_eq:
+                                update_ticket(ticket_id, {
+                                    "equipment_id": new_eq["id"],
+                                    "equipment_description": None,
+                                })
+                                st.success(f"✅ **{inv_name.strip()}** added to inventory and linked to this ticket.")
+                                st.rerun()
+                            else:
+                                st.error("Failed to create equipment record.")
+                        except Exception as e:
+                            st.error(f"Error adding equipment: {e}")
+
+        col_skip, _ = st.columns([1, 3])
+        with col_skip:
+            if st.button("✗ Discard — don't add to inventory", key=f"discard_equip_{ticket_id}"):
+                update_ticket(ticket_id, {"equipment_description": None})
+                st.success("Equipment description discarded.")
+                st.rerun()
 
     # ---- Warranty info display ----
     if ticket.get("warranty_checked"):

@@ -329,13 +329,17 @@ def render():
             return
 
         try:
-            # Resolve equipment_id — link existing or create new
+            # Resolve equipment — link existing inventory or capture description only.
+            # New equipment is NEVER auto-added to inventory from this form.
+            # PSP reviews the description on the ticket and adds to inventory manually.
             equipment_id = None
+            equipment_description = None
+
             if equip_mode == "existing" and selected_equipment_id:
-                # Use the existing inventory record directly — no new row created
                 equipment_id = selected_equipment_id
+
             elif equip_mode == "new" and new_equipment_name:
-                # Duplicate serial number check before inserting
+                # Duplicate serial check — warn if S/N already exists in inventory
                 if new_serial and new_serial.strip():
                     serial_clean = new_serial.strip().lower()
                     duplicate = next(
@@ -347,31 +351,26 @@ def render():
                         st.error(
                             f"⚠️ Serial number **{new_serial.strip()}** is already on record "
                             f"as **{duplicate['name']}** at this store. "
-                            f"Select it from 'Store inventory' instead of adding a duplicate."
+                            f"Select it from 'Store inventory' instead."
                         )
                         st.stop()
 
-                eq_data = {
-                    "store_id": selected_store_id,
-                    "name": new_equipment_name.strip(),
-                    "category": category_name,
-                }
-                if new_serial and new_serial.strip():
-                    eq_data["serial_number"] = new_serial.strip()
+                # Build a text description — stored on the ticket, not in inventory
+                parts = [new_equipment_name.strip()]
                 if new_manufacturer and new_manufacturer.strip():
-                    eq_data["manufacturer"] = new_manufacturer.strip()
+                    parts.append(f"Make: {new_manufacturer.strip()}")
                 if new_model and new_model.strip():
-                    eq_data["model"] = new_model.strip()
-
-                new_eq = create_equipment(eq_data)
-                if new_eq:
-                    equipment_id = new_eq["id"]
+                    parts.append(f"Model: {new_model.strip()}")
+                if new_serial and new_serial.strip():
+                    parts.append(f"S/N: {new_serial.strip()}")
+                equipment_description = " | ".join(parts)
 
             # Build ticket data
             ticket_data = {
                 "client_id": client_id,
                 "store_id": selected_store_id,
                 "equipment_id": equipment_id,
+                "equipment_description": equipment_description,
                 "category": category_name,
                 "description": description.strip(),
                 "urgency": selected_urgency,
@@ -408,7 +407,7 @@ def render():
                         )
                         if chosen:
                             notify_ticket["equipment"] = {"name": chosen.get("name", "Unknown")}
-                    elif new_equipment_name:
+                    elif equipment_description:
                         notify_ticket["equipment"] = {"name": new_equipment_name}
                     notify_new_ticket(notify_ticket, client_id)
                 except Exception as notify_err:
