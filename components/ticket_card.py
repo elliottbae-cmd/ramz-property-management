@@ -1,5 +1,6 @@
 """Reusable ticket display component."""
 
+import html as _html
 import streamlit as st
 from theme.branding import status_badge, urgency_badge
 from utils.constants import STATUS_COLORS, URGENCY_COLORS
@@ -18,13 +19,22 @@ def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str 
 
     store_label = f"{store.get('store_number', '')} - {store.get('name', '')}" if show_store else ""
     store_phone = store.get("phone", "") or ""
+
+    # Escape all user-provided content before inserting into HTML
+    safe_store_label = _html.escape(store_label)
+    safe_category = _html.escape(category)
+    safe_description = _html.escape(truncate(ticket.get('description', ''), 120))
+    safe_phone_display = _html.escape(store_phone)
+    # URL-encode phone for the tel: href (strip non-numeric for the href only)
+    safe_phone_href = "".join(c for c in store_phone if c.isdigit() or c in "+-(). ")
+
     phone_html = (
-        f'<span>📞 <a href="tel:{store_phone}" style="color:#757575; text-decoration:none;">'
-        f'{store_phone}</a></span>'
+        f'<span>📞 <a href="tel:{safe_phone_href}" style="color:#757575; text-decoration:none;">'
+        f'{safe_phone_display}</a></span>'
         if store_phone and show_store else ""
     )
     store_header_html = (
-        f'<span style="color:#757575; font-size:0.9rem; margin-left:0.6rem;">{store_label}</span>'
+        f'<span style="color:#757575; font-size:0.9rem; margin-left:0.6rem;">{safe_store_label}</span>'
         if store_label else ""
     )
 
@@ -38,12 +48,12 @@ def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str 
             {status_badge(status)}
         </div>
         <div style="font-size: 0.95rem; margin-bottom: 0.5rem;">
-            {truncate(ticket.get('description', ''), 120)}
+            {safe_description}
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: #757575;">
             <span>{urgency_badge(urgency)}</span>
-            <span>{category}</span>
-            {"<span>" + store_label + "</span>" if store_label else ""}
+            <span>{safe_category}</span>
+            {"<span>" + safe_store_label + "</span>" if store_label else ""}
             {phone_html}
             <span>{time_ago(ticket.get('created_at', ''))}</span>
         </div>
