@@ -38,26 +38,31 @@ def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str 
         if store_label else ""
     )
 
+    # Build the flex row as a single joined string to avoid blank lines
+    # from empty items (a blank line in Markdown breaks out of HTML context)
+    flex_items = "".join(filter(None, [
+        f'<span>{urgency_badge(urgency)}</span>',
+        f'<span>{safe_category}</span>',
+        f'<span>{safe_store_label}</span>' if store_label else '',
+        phone_html,
+        f'<span>{time_ago(ticket.get("created_at", ""))}</span>',
+    ]))
+
+    est_html = (
+        f'<div style="font-size: 0.8rem; color: #757575; margin-top: 0.25rem;">'
+        f'Est: {format_currency(ticket.get("estimated_cost"))}</div>'
+        if ticket.get("estimated_cost") else ""
+    )
+
     st.markdown(f"""
     <div class="ticket-card" style="border-left-color: {urgency_color};">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-            <span>
-                <strong>#{ticket.get('ticket_number', 'N/A')}</strong>
-                {store_header_html}
-            </span>
+            <span><strong>#{ticket.get('ticket_number', 'N/A')}</strong>{store_header_html}</span>
             {status_badge(status)}
         </div>
-        <div style="font-size: 0.95rem; margin-bottom: 0.5rem;">
-            {safe_description}
-        </div>
-        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: #757575;">
-            <span>{urgency_badge(urgency)}</span>
-            <span>{safe_category}</span>
-            {"<span>" + safe_store_label + "</span>" if store_label else ""}
-            {phone_html}
-            <span>{time_ago(ticket.get('created_at', ''))}</span>
-        </div>
-        {f'<div style="font-size: 0.8rem; color: #757575; margin-top: 0.25rem;">Est: {format_currency(ticket.get("estimated_cost"))}</div>' if ticket.get("estimated_cost") else ""}
+        <div style="font-size: 0.95rem; margin-bottom: 0.5rem;">{safe_description}</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: #757575;">{flex_items}</div>
+        {est_html}
     </div>
     """, unsafe_allow_html=True)
 
