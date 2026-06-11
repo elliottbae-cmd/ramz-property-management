@@ -385,40 +385,47 @@ def _render_equipment_detail(item: dict):
 
     with col_b:
         st.markdown("**Warranty Information**")
-        warranty = item.get("active_warranty")
-        if warranty:
+        all_warranties = get_warranties(item["id"])
+        today = date.today().isoformat()
+        active = [w for w in all_warranties if str(w.get("start_date", "")) <= today <= str(w.get("end_date", ""))]
+        expired = [w for w in all_warranties if w not in active]
+
+        if active:
+            for w in active:
+                st.markdown(
+                    f'<span style="background-color: #4CAF50; color: white; padding: 2px 10px; '
+                    f'border-radius: 12px; font-size: 0.85rem;">Active — {w.get("warranty_type", "Warranty")}</span>',
+                    unsafe_allow_html=True,
+                )
+                st.write(f"**Provider:** {w.get('warranty_provider', 'N/A')}")
+                st.write(f"**Start:** {format_date_short(str(w.get('start_date', '')))}")
+                st.write(f"**End:** {format_date_short(str(w.get('end_date', '')))}")
+                if w.get("coverage_description"):
+                    st.write(f"**Coverage:** {w['coverage_description']}")
+                if w.get("contact_phone"):
+                    st.write(f"**Phone:** {w['contact_phone']}")
+                if w.get("contact_email"):
+                    st.write(f"**Email:** {w['contact_email']}")
+                if len(active) > 1:
+                    st.markdown("---")
+            if expired:
+                st.caption(f"{len(expired)} expired warrant{'ies' if len(expired) != 1 else 'y'} on record")
+        elif expired:
             st.markdown(
-                '<span style="background-color: #4CAF50; color: white; padding: 2px 10px; '
-                'border-radius: 12px; font-size: 0.85rem;">Active Warranty</span>',
+                '<span style="background-color: #F44336; color: white; padding: 2px 10px; '
+                'border-radius: 12px; font-size: 0.85rem;">Warranty Expired</span>',
                 unsafe_allow_html=True,
             )
-            st.write(f"**Provider:** {warranty.get('warranty_provider', 'N/A')}")
-            st.write(f"**Start:** {format_date_short(str(warranty.get('start_date', '')))}")
-            st.write(f"**End:** {format_date_short(str(warranty.get('end_date', '')))}")
-            if warranty.get("coverage_description"):
-                st.write(f"**Coverage:** {warranty['coverage_description']}")
-            if warranty.get("contact_phone"):
-                st.write(f"**Phone:** {warranty['contact_phone']}")
-            if warranty.get("contact_email"):
-                st.write(f"**Email:** {warranty['contact_email']}")
+            latest = expired[0]
+            st.write(f"**Last Provider:** {latest.get('warranty_provider', 'N/A')}")
+            st.write(f"**Type:** {latest.get('warranty_type', 'N/A')}")
+            st.write(f"**Expired:** {format_date_short(str(latest.get('end_date', '')))}")
         else:
-            # Check for expired warranties
-            all_warranties = get_warranties(item["id"])
-            if all_warranties:
-                st.markdown(
-                    '<span style="background-color: #F44336; color: white; padding: 2px 10px; '
-                    'border-radius: 12px; font-size: 0.85rem;">Warranty Expired</span>',
-                    unsafe_allow_html=True,
-                )
-                latest = all_warranties[0]
-                st.write(f"**Last Provider:** {latest.get('warranty_provider', 'N/A')}")
-                st.write(f"**Expired:** {format_date_short(str(latest.get('end_date', '')))}")
-            else:
-                st.markdown(
-                    '<span style="background-color: #9E9E9E; color: white; padding: 2px 10px; '
-                    'border-radius: 12px; font-size: 0.85rem;">No Warranty</span>',
-                    unsafe_allow_html=True,
-                )
+            st.markdown(
+                '<span style="background-color: #9E9E9E; color: white; padding: 2px 10px; '
+                'border-radius: 12px; font-size: 0.85rem;">No Warranty</span>',
+                unsafe_allow_html=True,
+            )
 
     # Add / update warranty
     st.markdown("---")
