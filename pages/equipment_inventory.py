@@ -17,6 +17,7 @@ from database.equipment import (
     get_warranties,
     create_equipment,
     update_equipment,
+    create_warranty,
 )
 from theme.branding import render_header
 from utils.permissions import require_permission, can_manage_tickets
@@ -418,6 +419,67 @@ def _render_equipment_detail(item: dict):
                     'border-radius: 12px; font-size: 0.85rem;">No Warranty</span>',
                     unsafe_allow_html=True,
                 )
+
+    # Add / update warranty
+    st.markdown("---")
+    st.markdown("**Add / Update Warranty**")
+    with st.form(f"warranty_form_{item['id']}", clear_on_submit=True):
+        w_provider = st.text_input("Provider *", placeholder="e.g., Carrier, Lennox, Trane", key=f"wprov_{item['id']}")
+        w_type = st.selectbox(
+            "Warranty Type",
+            ["Parts & Labor", "Parts Only", "Labor Only", "Full Coverage", "Other"],
+            key=f"wtype_{item['id']}",
+        )
+        col_ws, col_we = st.columns(2)
+        with col_ws:
+            w_start = st.date_input("Start Date *", value=date.today(), key=f"wstart_{item['id']}")
+        with col_we:
+            w_end = st.date_input("End Date *", value=None, key=f"wend_{item['id']}")
+        w_coverage = st.text_area(
+            "Coverage Description",
+            height=60,
+            placeholder="Describe what is covered...",
+            key=f"wcov_{item['id']}",
+        )
+        col_wp, col_we2 = st.columns(2)
+        with col_wp:
+            w_phone = st.text_input("Contact Phone", placeholder="e.g., 800-555-1234", key=f"wph_{item['id']}")
+        with col_we2:
+            w_email = st.text_input("Contact Email", placeholder="warranty@provider.com", key=f"wem_{item['id']}")
+
+        save_w = st.form_submit_button("Save Warranty", type="primary", width="stretch")
+
+        if save_w:
+            if not w_provider or not w_provider.strip():
+                st.error("Provider is required.")
+            elif not w_end:
+                st.error("End date is required.")
+            elif w_end <= w_start:
+                st.error("End date must be after start date.")
+            else:
+                warranty_data = {
+                    "equipment_id": item["id"],
+                    "warranty_provider": w_provider.strip(),
+                    "warranty_type": w_type,
+                    "start_date": w_start.isoformat(),
+                    "end_date": w_end.isoformat(),
+                }
+                if w_coverage and w_coverage.strip():
+                    warranty_data["coverage_description"] = w_coverage.strip()
+                if w_phone and w_phone.strip():
+                    warranty_data["contact_phone"] = w_phone.strip()
+                if w_email and w_email.strip():
+                    warranty_data["contact_email"] = w_email.strip()
+
+                result = create_warranty(warranty_data)
+                if result:
+                    st.success("Warranty saved!")
+                    get_warranties.clear()
+                    get_active_warranties_bulk.clear()
+                    get_equipment_with_details.clear()
+                    st.rerun()
+                else:
+                    st.error("Failed to save warranty — check that you have permission to edit equipment.")
 
     # Repair history
     st.markdown("---")
