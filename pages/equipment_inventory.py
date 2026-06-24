@@ -43,6 +43,20 @@ EQUIPMENT_CATEGORIES = [
     "Other",
 ]
 
+# Warranty type options — includes component-level tiers (Compressor, Heat
+# Exchanger, etc.) so manufacturer warranties with different per-part terms
+# can each be tracked as their own record.
+WARRANTY_TYPES = [
+    "Parts & Labor",
+    "Parts Only",
+    "Labor Only",
+    "All Parts",
+    "Compressor",
+    "Heat Exchanger",
+    "Full Coverage",
+    "Other",
+]
+
 
 @st.cache_data(ttl=120)
 def _batch_ticket_stats(equipment_ids: tuple | list) -> tuple[dict[str, int], dict[str, float]]:
@@ -480,7 +494,7 @@ def _render_equipment_detail(item: dict):
         w_provider = st.text_input("Provider *", placeholder="e.g., Carrier, Lennox, Trane", key=f"wprov_{item['id']}")
         w_type = st.selectbox(
             "Warranty Type",
-            ["Parts & Labor", "Parts Only", "Labor Only", "Full Coverage", "Other"],
+            WARRANTY_TYPES,
             key=f"wtype_{item['id']}",
         )
         col_ws, col_we = st.columns(2)
