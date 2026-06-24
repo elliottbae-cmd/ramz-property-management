@@ -48,6 +48,15 @@ def switch_client(client_id: str) -> dict | None:
         )
         st.session_state["effective_client_id"] = client_id
         st.session_state["current_client"] = client_record.data
+
+        # Persist selection so it auto-restores after session resets / redeploys
+        try:
+            user = st.session_state.get("user_profile", {})
+            if user.get("id"):
+                sb.table("users").update({"last_client_id": client_id}).eq("id", user["id"]).execute()
+        except Exception:
+            pass  # Non-fatal — session state is already correct
+
         return client_record.data
     except Exception:
         return None

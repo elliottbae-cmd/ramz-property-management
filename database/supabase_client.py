@@ -186,8 +186,12 @@ def _hydrate_client_context(profile: dict):
     if profile.get("user_tier") == "client":
         st.session_state["effective_client_id"] = profile.get("client_id")
     elif profile.get("user_tier") == "psp":
-        # PSP users start with no active client; they pick one via tenant.switch_client()
-        if "effective_client_id" not in st.session_state:
+        # Restore last-used client so PSP users don't land on a blank page
+        # after a session reset or redeployment.
+        last_client_id = profile.get("last_client_id")
+        if last_client_id:
+            st.session_state["effective_client_id"] = last_client_id
+        elif "effective_client_id" not in st.session_state:
             st.session_state["effective_client_id"] = None
 
 
