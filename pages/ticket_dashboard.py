@@ -59,7 +59,10 @@ def render():
         )
 
     with col2:
-        status_options = {"all": "All Statuses"} | {s: STATUS_LABELS[s] for s in TICKET_STATUSES}
+        status_options = (
+            {"all": "All Statuses", "open": "All Open"}
+            | {s: STATUS_LABELS[s] for s in TICKET_STATUSES}
+        )
         status_filter = st.selectbox(
             "Status", list(status_options.keys()),
             format_func=lambda x: status_options[x],
@@ -80,12 +83,18 @@ def render():
     filters = {}
     if store_filter != "all":
         filters["store_id"] = store_filter
-    if status_filter != "all":
+    # "open" is a synthetic filter (everything except completed) handled below,
+    # not a real status value — so don't push it to the DB query.
+    if status_filter not in ("all", "open"):
         filters["status"] = status_filter
     if urg_filter != "all":
         filters["urgency"] = urg_filter
 
     tickets = get_tickets_for_client(client_id, filters if filters else None)
+
+    # "All Open" = all tickets except those marked completed
+    if status_filter == "open":
+        tickets = [t for t in tickets if t.get("status") != "completed"]
 
     # ---- Summary metrics ----
     st.markdown("---")
