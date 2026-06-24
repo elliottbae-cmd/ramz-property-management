@@ -63,8 +63,10 @@ def render():
             {"all": "All Statuses", "open": "All Open"}
             | {s: STATUS_LABELS[s] for s in TICKET_STATUSES}
         )
+        status_keys = list(status_options.keys())
         status_filter = st.selectbox(
-            "Status", list(status_options.keys()),
+            "Status", status_keys,
+            index=status_keys.index("open"),  # default to All Open
             format_func=lambda x: status_options[x],
         )
 
