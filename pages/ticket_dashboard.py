@@ -92,9 +92,12 @@ def render():
 
     tickets = get_tickets_for_client(client_id, filters if filters else None)
 
-    # "All Open" = all tickets except those marked completed
+    # "All Open" = all tickets except those that are finished
     if status_filter == "open":
-        tickets = [t for t in tickets if t.get("status") != "completed"]
+        tickets = [
+            t for t in tickets
+            if t.get("status") not in ("completed", "closed", "rejected")
+        ]
 
     # ---- Summary metrics ----
     st.markdown("---")
