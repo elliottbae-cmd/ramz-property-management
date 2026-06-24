@@ -13,7 +13,10 @@ def create_ticket(data: dict) -> dict | None:
     try:
         sb = get_client()
         result = sb.table("tickets").insert(data).execute()
-        return result.data[0] if result.data else None
+        if result.data:
+            clear_tickets_cache()
+            return result.data[0]
+        return None
     except Exception:
         return None
 
@@ -128,8 +131,23 @@ def _fetch_tickets_for_client(
         return []
 
 
+def clear_tickets_cache() -> None:
+    """Invalidate all cached ticket lists.
+
+    Call after any insert/update/status change so queues (warranty review,
+    dashboard, approvals, etc.) reflect the new state immediately instead of
+    showing stale rows until the 120s TTL expires.
+    """
+    _fetch_tickets_for_client.clear()
+    get_tickets_for_user.clear()
+
+
 def update_ticket(ticket_id: str, data: dict) -> dict | None:
-    """Update an existing ticket."""
+    """Update an existing ticket.
+
+    Clears the cached ticket lists on success so status changes are reflected
+    immediately across all queues.
+    """
     try:
         sb = get_client()
         result = (
@@ -138,7 +156,10 @@ def update_ticket(ticket_id: str, data: dict) -> dict | None:
             .eq("id", ticket_id)
             .execute()
         )
-        return result.data[0] if result.data else None
+        if result.data:
+            clear_tickets_cache()
+            return result.data[0]
+        return None
     except Exception:
         return None
 
