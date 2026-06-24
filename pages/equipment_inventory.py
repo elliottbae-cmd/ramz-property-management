@@ -19,6 +19,7 @@ from database.equipment import (
     update_equipment,
     create_warranty,
 )
+from database.equipment_documents import add_warranty_document, remove_warranty_document
 from theme.branding import render_header
 from utils.permissions import require_permission, can_manage_tickets
 from utils.helpers import format_currency, format_date_short
@@ -426,6 +427,51 @@ def _render_equipment_detail(item: dict):
                 'border-radius: 12px; font-size: 0.85rem;">No Warranty</span>',
                 unsafe_allow_html=True,
             )
+
+    # Warranty documents — attach registration certs, manufacturer warranty
+    # PDFs, sub warranty letters, etc. to each warranty record.
+    warranties_for_docs = get_warranties(item["id"])
+    if warranties_for_docs:
+        st.markdown("---")
+        st.markdown("**📎 Warranty Documents**")
+        for w in warranties_for_docs:
+            wid = w["id"]
+            label = f"{w.get('warranty_provider', 'Warranty')}"
+            if w.get("warranty_type"):
+                label += f" — {w['warranty_type']}"
+            st.markdown(f"_{label}_")
+
+            docs = w.get("document_urls") or []
+            if docs:
+                for url in docs:
+                    clean_url = url.rstrip("?")
+                    fname = clean_url.split("/")[-1]
+                    col_link, col_rm = st.columns([6, 1])
+                    with col_link:
+                        st.markdown(f"📄 [{fname}]({clean_url})")
+                    with col_rm:
+                        if st.button("Remove", key=f"wdoc_rm_{wid}_{fname}"):
+                            if remove_warranty_document(wid, url):
+                                get_warranties.clear()
+                                st.rerun()
+            else:
+                st.caption("No documents attached yet.")
+
+            up = st.file_uploader(
+                "Attach a document (PDF, image, or Office file)",
+                type=["pdf", "jpg", "jpeg", "png", "doc", "docx"],
+                key=f"wdoc_up_{wid}",
+            )
+            if up is not None:
+                if st.button("Upload", key=f"wdoc_btn_{wid}", type="primary"):
+                    try:
+                        add_warranty_document(wid, item["id"], up.getvalue(), up.name)
+                        get_warranties.clear()
+                        st.success(f"Attached {up.name}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Upload failed: {e}")
+            st.markdown("")
 
     # Add / update warranty
     st.markdown("---")
