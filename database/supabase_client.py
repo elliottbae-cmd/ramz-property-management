@@ -35,6 +35,13 @@ def _ensure_fresh_token() -> None:
     if not refresh_token or not expires_at:
         return  # legacy session without refresh data — nothing to refresh
 
+    # Coerce expiry defensively — this runs in the hot path of every get_client()
+    # call, so a malformed value must never raise here.
+    try:
+        expires_at = float(expires_at)
+    except (TypeError, ValueError):
+        return
+
     # Only refresh when within 5 minutes of expiry
     if time.time() < expires_at - 300:
         return

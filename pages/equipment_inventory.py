@@ -3,6 +3,7 @@ Equipment Inventory -- Track and manage equipment across all locations.
 Provides filtering, summary metrics, detail views, and repair history.
 """
 
+import html as _html
 import streamlit as st
 from datetime import datetime, date
 
@@ -381,6 +382,9 @@ def _render_all_stores_grouped(equipment: list[dict], stores: list[dict], search
 
 def _render_equipment_detail(item: dict):
     """Render expanded detail view for a single equipment item."""
+    # Fetch warranties once and reuse for both the info panel and the
+    # documents section below (was previously queried twice per item).
+    all_warranties = get_warranties(item["id"])
     col_a, col_b = st.columns(2)
 
     with col_a:
@@ -400,7 +404,6 @@ def _render_equipment_detail(item: dict):
 
     with col_b:
         st.markdown("**Warranty Information**")
-        all_warranties = get_warranties(item["id"])
         today = date.today().isoformat()
         active = [w for w in all_warranties if str(w.get("start_date", "")) <= today <= str(w.get("end_date", ""))]
         expired = [w for w in all_warranties if w not in active]
@@ -443,8 +446,9 @@ def _render_equipment_detail(item: dict):
             )
 
     # Warranty documents — attach registration certs, manufacturer warranty
-    # PDFs, sub warranty letters, etc. to each warranty record.
-    warranties_for_docs = get_warranties(item["id"])
+    # PDFs, sub warranty letters, etc. to each warranty record. Reuses the
+    # warranties already fetched at the top of this function.
+    warranties_for_docs = all_warranties
     if warranties_for_docs:
         st.markdown("---")
         st.markdown("**📎 Warranty Documents**")
@@ -457,14 +461,16 @@ def _render_equipment_detail(item: dict):
 
             docs = w.get("document_urls") or []
             if docs:
-                for url in docs:
+                # Index the key (not the filename) so two same-named docs can't
+                # collide into a duplicate Streamlit element key.
+                for idx, url in enumerate(docs):
                     clean_url = url.rstrip("?")
                     fname = clean_url.split("/")[-1]
                     col_link, col_rm = st.columns([6, 1])
                     with col_link:
-                        st.markdown(f"📄 [{fname}]({clean_url})")
+                        st.markdown(f"📄 [{_html.escape(fname)}]({clean_url})")
                     with col_rm:
-                        if st.button("Remove", key=f"wdoc_rm_{wid}_{fname}"):
+                        if st.button("Remove", key=f"wdoc_rm_{wid}_{idx}"):
                             if remove_warranty_document(wid, url):
                                 get_warranties.clear()
                                 st.rerun()
@@ -481,7 +487,8 @@ def _render_equipment_detail(item: dict):
                     try:
                         add_warranty_document(wid, item["id"], up.getvalue(), up.name)
                         get_warranties.clear()
-                        st.success(f"Attached {up.name}")
+                        # Clear the uploader so a rerun can't re-upload the same file
+                        st.session_state.pop(f"wdoc_up_{wid}", None)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Upload failed: {e}")

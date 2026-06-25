@@ -310,6 +310,11 @@ def render():
     st.markdown("---")
 
     if st.button("Submit Repair Request", type="primary", width="stretch"):
+        # Guard against a double-click / rerun creating duplicate tickets
+        if st.session_state.get("_submitting_ticket"):
+            st.warning("Submission already in progress…")
+            return
+
         # Validation
         errors = []
         if not selected_store_id:
@@ -323,6 +328,8 @@ def render():
             for e in errors:
                 st.error(e)
             return
+
+        st.session_state["_submitting_ticket"] = True
 
         try:
             # Resolve equipment — link existing inventory or capture description only.
@@ -414,14 +421,15 @@ def render():
                 )
                 st.balloons()
 
-                import time
-                time.sleep(2)
+                st.session_state.pop("_submitting_ticket", None)
                 st.session_state["nav_redirect"] = "My Tickets"
                 st.rerun()
             else:
+                st.session_state.pop("_submitting_ticket", None)
                 st.error("Failed to create ticket. Please try again.")
 
         except Exception as e:
+            st.session_state.pop("_submitting_ticket", None)
             st.error(f"Error submitting request: {str(e)}")
 
 

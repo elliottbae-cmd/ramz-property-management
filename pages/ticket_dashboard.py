@@ -86,21 +86,16 @@ def render():
     filters = {}
     if store_filter != "all":
         filters["store_id"] = store_filter
-    # "open" is a synthetic filter (everything except completed) handled below,
-    # not a real status value — so don't push it to the DB query.
-    if status_filter not in ("all", "open"):
+    if status_filter == "open":
+        # "All Open" = everything except finished states — pushed to the DB
+        # so we don't pull the full ticket history and discard most of it.
+        filters["exclude_statuses"] = ("completed", "closed", "rejected")
+    elif status_filter != "all":
         filters["status"] = status_filter
     if urg_filter != "all":
         filters["urgency"] = urg_filter
 
     tickets = get_tickets_for_client(client_id, filters if filters else None)
-
-    # "All Open" = all tickets except those that are finished
-    if status_filter == "open":
-        tickets = [
-            t for t in tickets
-            if t.get("status") not in ("completed", "closed", "rejected")
-        ]
 
     # ---- Summary metrics ----
     st.markdown("---")

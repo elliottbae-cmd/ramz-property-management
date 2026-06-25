@@ -80,7 +80,8 @@ def get_tickets_for_client(client_id: str, filters: dict | None = None, limit: i
     """Return all tickets for a client with optional filtering.
 
     Supported filter keys: store_id, status, urgency, category,
-    submitted_by, assigned_to.
+    submitted_by, assigned_to, exclude_statuses (list/tuple of statuses to
+    omit — e.g. for an "open tickets" view).
     Delegates to a cached helper with hashable arguments.
     """
     if filters:
@@ -92,6 +93,7 @@ def get_tickets_for_client(client_id: str, filters: dict | None = None, limit: i
             category=filters.get("category", ""),
             submitted_by=filters.get("submitted_by", ""),
             assigned_to=filters.get("assigned_to", ""),
+            exclude_statuses=tuple(filters.get("exclude_statuses", ())),
         )
     return _fetch_tickets_for_client(client_id, limit)
 
@@ -101,6 +103,7 @@ def _fetch_tickets_for_client(
     client_id: str, limit: int = 100,
     store_id: str = "", status: str = "", urgency: str = "",
     category: str = "", submitted_by: str = "", assigned_to: str = "",
+    exclude_statuses: tuple = (),
 ) -> list[dict]:
     """Cached ticket fetch with hashable parameters."""
     try:
@@ -116,6 +119,8 @@ def _fetch_tickets_for_client(
             query = query.eq("store_id", store_id)
         if status:
             query = query.eq("status", status)
+        if exclude_statuses:
+            query = query.not_.in_("status", list(exclude_statuses))
         if urgency:
             query = query.eq("urgency", urgency)
         if category:
@@ -194,23 +199,22 @@ def _fetch_ticket_comments(ticket_id: str) -> list[dict]:
     )
     comments = result.data or []
 
-    # Resolve full_name for each comment from public.users
+    # Resolve commenter names in ONE bulk query (not per-comment) — avoids the
+    # N+1 round trips while still sidestepping the auth.users/public.users
+    # cross-schema join PostgREST can't do.
+    user_ids = list({c["user_id"] for c in comments if c.get("user_id")})
+    name_map: dict[str, dict] = {}
+    if user_ids:
+        users_result = (
+            sb.table("users")
+            .select("id, full_name")
+            .in_("id", user_ids)
+            .execute()
+        )
+        name_map = {u["id"]: u for u in (users_result.data or [])}
+
     for comment in comments:
-        uid = comment.get("user_id")
-        if uid:
-            try:
-                user_result = (
-                    sb.table("users")
-                    .select("full_name")
-                    .eq("id", uid)
-                    .single()
-                    .execute()
-                )
-                comment["users"] = user_result.data or {}
-            except Exception:
-                comment["users"] = {}
-        else:
-            comment["users"] = {}
+        comment["users"] = name_map.get(comment.get("user_id"), {})
 
     return comments
 
