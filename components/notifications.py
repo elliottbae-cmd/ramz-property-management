@@ -66,8 +66,9 @@ def _send_email(to_emails: list[dict], subject: str, html_body: str) -> bool:
         except Exception:
             body = ""
 
+        # Notifications are best-effort — never raise into a caller that has
+        # already committed its workflow. Log, alert where useful, return False.
         if status == 429:
-            # Log a persistent system alert so PSP sees it in the sidebar
             try:
                 from database.audit import log_system_alert
                 log_system_alert(
@@ -76,25 +77,18 @@ def _send_email(to_emails: list[dict], subject: str, html_body: str) -> bool:
                 )
             except Exception:
                 pass
-            raise RuntimeError(
-                "Email notification could not be sent — the team has been alerted."
-            )
+            print(f"[NOTIFICATION - rate limited] {subject} (429) — team alerted")
         elif status == 401:
-            raise RuntimeError(
-                "SendGrid API key is invalid or expired. "
-                "Update SENDGRID_API_KEY in Streamlit Cloud secrets."
-            )
+            print("[NOTIFICATION - auth error] SendGrid key invalid/expired (401)")
         elif status == 403:
-            raise RuntimeError(
-                "SendGrid rejected the send — your sender identity may not be verified. "
-                "Check sendgrid.com → Settings → Sender Authentication."
-            )
+            print("[NOTIFICATION - forbidden] SendGrid sender identity not verified (403)")
         else:
-            raise RuntimeError(
-                f"SendGrid error {status} — email not sent. Details: {body[:200]}"
-            )
-    except Exception:
-        raise
+            print(f"[NOTIFICATION - error] SendGrid {status}: {body[:200]}")
+        return False
+    except Exception as e:
+        # Any unexpected failure (import error, network) is logged, never raised
+        print(f"[NOTIFICATION - exception] {subject}: {e}")
+        return False
 
 
 def _base_html(title: str, body_rows: str, cta_url: str = "", cta_label: str = "") -> str:

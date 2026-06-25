@@ -87,15 +87,21 @@ def render_ticket_detail(ticket: dict, photos: list = None, comments: list = Non
         st.markdown(f"**Category:** {ticket.get('category', 'N/A')}")
     with col2:
         store_phone = store.get("phone", "") or ""
+        # Escape display text; digit-filter the tel: href (same hardening as the card)
+        safe_phone_display = _html.escape(store_phone)
+        safe_phone_href = "".join(c for c in store_phone if c.isdigit() or c in "+-(). ")
         phone_display = (
-            f' &nbsp;[📞 {store_phone}](tel:{store_phone})'
+            f' &nbsp;[📞 {safe_phone_display}](tel:{safe_phone_href})'
             if store_phone else ""
         )
+        safe_store_label = _html.escape(
+            f"{store.get('store_number', '')} - {store.get('name', '')}"
+        )
         st.markdown(
-            f"**Store:** {store.get('store_number', '')} - {store.get('name', '')}{phone_display}",
+            f"**Store:** {safe_store_label}{phone_display}",
             unsafe_allow_html=True,
         )
-        st.markdown(f"**Submitted by:** {submitter.get('full_name', 'N/A')}")
+        st.markdown(f"**Submitted by:** {_html.escape(submitter.get('full_name', 'N/A'))}")
         st.markdown(f"**Submitted:** {time_ago(ticket.get('created_at', ''))}")
 
     if equipment:

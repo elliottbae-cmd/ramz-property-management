@@ -478,6 +478,10 @@ def _render_ai_results(result: dict, ticket_id: str):
         if source_urls:
             st.markdown("**Sources:**")
             for url in source_urls:
+                url = str(url or "")
+                # Only render http(s) links — AI/web content is untrusted
+                if not url.lower().startswith(("http://", "https://")):
+                    continue
                 display_url = url if len(url) <= 80 else url[:77] + "..."
                 st.markdown(f"- [{display_url}]({url})")
 

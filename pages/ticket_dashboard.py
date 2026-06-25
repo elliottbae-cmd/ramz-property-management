@@ -4,6 +4,7 @@ Includes filtering, assignment, and ticket detail management.
 Uses new multi-tenant module imports.
 """
 
+import html as _html
 import streamlit as st
 import datetime
 from database.supabase_client import get_current_user, get_client, is_psp_user
@@ -573,16 +574,20 @@ def _render_management_view(ticket_id: str, user: dict, client_id: str):
         if existing_wos:
             for wo in existing_wos:
                 contractor = wo.get("contractors") or {}
+                # Escape all free-text/user-entered values before HTML injection
+                safe_company = _html.escape(contractor.get("company_name", "N/A") or "N/A")
+                safe_phone = _html.escape(contractor.get("phone") or "")
+                safe_notes = _html.escape(wo.get("notes") or "")
                 st.markdown(
                     f'<div style="background:#F0FFF4; border:1px solid #27AE60; '
                     f'border-radius:8px; padding:12px 16px; margin-bottom:0.75rem;">'
                     f'<strong>Work Order Issued</strong><br>'
-                    f'Contractor: <strong>{contractor.get("company_name", "N/A")}</strong>'
-                    f'{(" · " + contractor.get("phone")) if contractor.get("phone") else ""}<br>'
+                    f'Contractor: <strong>{safe_company}</strong>'
+                    f'{(" · " + safe_phone) if safe_phone else ""}<br>'
                     f'Amount: <strong>${wo.get("amount") or 0:,.2f}</strong> · '
                     f'Status: <strong>{wo.get("status", "").replace("_", " ").title()}</strong> · '
                     f'Issued: {format_date_short(wo.get("issued_at") or "")}'
-                    f'{("<br>Notes: " + wo["notes"]) if wo.get("notes") else ""}'
+                    f'{("<br>Notes: " + safe_notes) if safe_notes else ""}'
                     f'</div>',
                     unsafe_allow_html=True,
                 )

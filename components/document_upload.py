@@ -1,5 +1,6 @@
 """Document upload and display component for tickets."""
 
+import html as _html
 import streamlit as st
 from database.ticket_documents import save_document, get_ticket_documents
 
@@ -112,15 +113,23 @@ def render_document_list(ticket_id: str) -> None:
         created = (doc.get("created_at") or "")[:10]
         notes = doc.get("notes") or ""
 
+        # st.markdown auto-escapes raw text, but file_name/notes flow into an
+        # HTML <a href> below, so escape everything user-controlled.
+        safe_name = _html.escape(name)
+        safe_notes = _html.escape(notes)
+        # Only emit the link for http(s) URLs, and escape it for the attribute
+        safe_url = _html.escape(url, quote=True) if url.lower().startswith(("http://", "https://")) else ""
+
         col_icon, col_info, col_link = st.columns([0.08, 0.72, 0.20])
         with col_icon:
             st.markdown(f"<div style='font-size:1.5rem; padding-top:4px;'>{icon}</div>", unsafe_allow_html=True)
         with col_info:
-            st.markdown(f"**{name}**  \n{label} · {size_str} · {created}" + (f"  \n_{notes}_" if notes else ""))
+            st.markdown(f"**{safe_name}**  \n{label} · {size_str} · {created}" + (f"  \n_{safe_notes}_" if notes else ""))
         with col_link:
-            if url:
+            if safe_url:
                 st.markdown(
-                    f'<a href="{url}" target="_blank" style="display:inline-block; margin-top:8px; '
+                    f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" '
+                    f'style="display:inline-block; margin-top:8px; '
                     f'padding:4px 12px; background:#1B3A4B; color:white; border-radius:4px; '
                     f'text-decoration:none; font-size:0.8rem;">Open</a>',
                     unsafe_allow_html=True,
