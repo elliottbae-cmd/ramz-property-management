@@ -173,15 +173,6 @@ def try_restore_session() -> bool:
     return False
 
 
-def _save_refresh_token(refresh_token: str):
-    """Save refresh token to a local file for session persistence."""
-    import json, os
-    token_file = os.path.join(os.path.dirname(__file__), "..", ".session_token")
-    token_file = os.path.normpath(token_file)
-    with open(token_file, "w") as f:
-        json.dump({"refresh_token": refresh_token}, f)
-
-
 def _clear_refresh_token():
     """Remove saved refresh token."""
     import os
@@ -206,11 +197,6 @@ def sign_in(email: str, password: str, remember: bool = False):
         st.session_state["refresh_token"] = result.session.refresh_token
         st.session_state["token_expires_at"] = result.session.expires_at
         sb.postgrest.auth(result.session.access_token)
-
-        # Save refresh token if "Remember me" is checked
-        # File-based "remember me" disabled — unsafe on shared servers
-        # if remember and result.session:
-        #     _save_refresh_token(result.session.refresh_token)
 
         try:
             profile = (
