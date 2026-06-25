@@ -3,6 +3,7 @@
 import html as _html
 import streamlit as st
 from database.ticket_documents import save_document, get_ticket_documents
+from database.storage import signed_url
 
 MAX_FILE_SIZE_MB = 10
 ALLOWED_EXTENSIONS = ["pdf", "jpg", "jpeg", "png", "doc", "docx", "xls", "xlsx"]
@@ -107,7 +108,7 @@ def render_document_list(ticket_id: str) -> None:
         icon = DOC_ICONS.get(doc_type, "📄")
         label = DOC_TYPE_LABELS.get(doc_type, doc_type.title())
         name = doc.get("file_name", "Unknown")
-        url = doc.get("file_url", "")
+        url = signed_url(doc.get("file_url", ""))
         size_bytes = doc.get("file_size_bytes") or 0
         size_str = f"{size_bytes / 1024:.0f} KB" if size_bytes < 1_048_576 else f"{size_bytes / 1_048_576:.1f} MB"
         created = (doc.get("created_at") or "")[:10]

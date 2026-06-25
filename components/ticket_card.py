@@ -5,6 +5,7 @@ import streamlit as st
 from theme.branding import status_badge, urgency_badge
 from utils.constants import STATUS_COLORS, URGENCY_COLORS
 from utils.helpers import time_ago, format_currency, truncate
+from database.storage import signed_url
 
 
 def render_ticket_card(ticket: dict, show_store: bool = True, on_click_key: str = None):
@@ -125,7 +126,7 @@ def render_ticket_detail(ticket: dict, photos: list = None, comments: list = Non
         cols = st.columns(min(len(photos), 3))
         for i, photo in enumerate(photos):
             with cols[i % 3]:
-                st.image(photo["photo_url"], width="stretch")
+                st.image(signed_url(photo["photo_url"]), width="stretch")
 
     # Approval chain
     if approvals:

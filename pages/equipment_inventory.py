@@ -21,6 +21,7 @@ from database.equipment import (
     create_warranty,
 )
 from database.equipment_documents import add_warranty_document, remove_warranty_document
+from database.storage import signed_url
 from theme.branding import render_header
 from utils.permissions import require_permission, can_manage_tickets
 from utils.helpers import format_currency, format_date_short
@@ -466,9 +467,10 @@ def _render_equipment_detail(item: dict):
                 for idx, url in enumerate(docs):
                     clean_url = url.rstrip("?")
                     fname = clean_url.split("/")[-1]
+                    link_url = signed_url(clean_url)
                     col_link, col_rm = st.columns([6, 1])
                     with col_link:
-                        st.markdown(f"📄 [{_html.escape(fname)}]({clean_url})")
+                        st.markdown(f"📄 [{_html.escape(fname)}]({link_url})")
                     with col_rm:
                         if st.button("Remove", key=f"wdoc_rm_{wid}_{idx}"):
                             if remove_warranty_document(wid, url):
