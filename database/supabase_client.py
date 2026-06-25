@@ -18,6 +18,49 @@ def get_supabase_client() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+def _ensure_fresh_token() -> None:
+    """Refresh the Supabase access token before it expires.
+
+    Supabase access tokens are short-lived (~1 hour). Without refresh, once the
+    token expires every DB query silently fails RLS and the user sees empty data
+    while still *appearing* logged in. This proactively refreshes a few minutes
+    before expiry using the stored refresh token.
+
+    On refresh failure the session is cleared so the user is taken back to the
+    login screen rather than left staring at empty data.
+    """
+    import time
+    refresh_token = st.session_state.get("refresh_token")
+    expires_at = st.session_state.get("token_expires_at")
+    if not refresh_token or not expires_at:
+        return  # legacy session without refresh data — nothing to refresh
+
+    # Only refresh when within 5 minutes of expiry
+    if time.time() < expires_at - 300:
+        return
+
+    try:
+        # Dedicated throwaway client so we don't mutate the shared cached client
+        auth_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        resp = auth_client.auth.refresh_session(refresh_token)
+        sess = resp.session
+        if sess and sess.access_token:
+            st.session_state["access_token"] = sess.access_token
+            st.session_state["refresh_token"] = sess.refresh_token
+            st.session_state["token_expires_at"] = sess.expires_at
+            return
+    except Exception:
+        pass
+
+    # Refresh failed — token is dead. Clear the session so the auth gate
+    # shows login instead of silently returning empty query results.
+    for key in (
+        "user_id", "access_token", "refresh_token", "token_expires_at",
+        "user_profile", "_sb_client", "_sb_client_token",
+    ):
+        st.session_state.pop(key, None)
+
+
 def get_client() -> Client:
     """Primary accessor used by all database modules.
 
@@ -26,6 +69,7 @@ def get_client() -> Client:
     is created once per login rather than once per DB call. Rebuilds automatically
     if the access token changes (e.g. after a token refresh).
     """
+    _ensure_fresh_token()
     token = st.session_state.get("access_token")
     if not token:
         return get_supabase_client()
@@ -150,6 +194,10 @@ def sign_in(email: str, password: str, remember: bool = False):
     if result.user:
         st.session_state["user_id"] = result.user.id
         st.session_state["access_token"] = result.session.access_token
+        # Store refresh token + expiry so the session can auto-renew before
+        # the ~1-hour access token expires (prevents silent empty-data state).
+        st.session_state["refresh_token"] = result.session.refresh_token
+        st.session_state["token_expires_at"] = result.session.expires_at
         sb.postgrest.auth(result.session.access_token)
 
         # Save refresh token if "Remember me" is checked
@@ -201,8 +249,9 @@ def sign_out():
     sb = get_supabase_client()
     sb.auth.sign_out()
     keys_to_clear = [
-        "user_id", "access_token", "user_profile",
-        "effective_client_id", "current_client",
+        "user_id", "access_token", "refresh_token", "token_expires_at",
+        "user_profile", "effective_client_id", "current_client",
+        "_sb_client", "_sb_client_token",
     ]
     for key in keys_to_clear:
         st.session_state.pop(key, None)
