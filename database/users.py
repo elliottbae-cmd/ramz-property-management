@@ -2,6 +2,7 @@
 
 import streamlit as st
 from database.supabase_client import get_client
+from utils.cache import cached_query
 
 
 def get_current_user_profile() -> dict | None:
@@ -30,25 +31,29 @@ def get_current_user_profile() -> dict | None:
 
 @st.cache_data(ttl=300)
 def _fetch_users_for_client(client_id: str, active_only: bool = True) -> list[dict]:
-    """Cached fetch of users for a client."""
-    try:
-        sb = get_client()
-        query = (
-            sb.table("users")
-            .select("*")
-            .eq("client_id", client_id)
-            .order("full_name")
-        )
-        if active_only:
-            query = query.eq("is_active", True)
-        return query.execute().data or []
-    except Exception:
-        return []
+    """Cached fetch of users for a client. Raises on error (not cached)."""
+    sb = get_client()
+    query = (
+        sb.table("users")
+        .select("*")
+        .eq("client_id", client_id)
+        .order("full_name")
+    )
+    if active_only:
+        query = query.eq("is_active", True)
+    return query.execute().data or []
 
 
 def get_users_for_client(client_id: str, active_only: bool = True) -> list[dict]:
-    """Return all users belonging to a specific client org."""
-    return _fetch_users_for_client(client_id, active_only)
+    """Return all users belonging to a specific client org.
+
+    Catches outside the cached helper so a transient failure isn't memoized as
+    "no users" (which would silently drop notification recipients for the TTL).
+    """
+    try:
+        return _fetch_users_for_client(client_id, active_only)
+    except Exception:
+        return []
 
 
 def clear_users_cache() -> None:
@@ -114,24 +119,23 @@ def get_psp_users_by_role(psp_role: str, active_only: bool = True) -> list[dict]
         return []
 
 
-@st.cache_data(ttl=300)
+@cached_query(ttl=300, default_factory=list)
 def get_users_by_role(client_id: str, role: str, active_only: bool = True) -> list[dict]:
     """Return users with a specific client_role within a client org.
 
     Uses admin client to bypass RLS — needed for notification email lookups.
+    Raises on error (caught by cached_query) so failures aren't cached as
+    "no recipients".
     """
-    try:
-        from database.supabase_client import get_admin_client
-        sb = get_admin_client()
-        query = (
-            sb.table("users")
-            .select("*")
-            .eq("client_id", client_id)
-            .eq("client_role", role)
-            .order("full_name")
-        )
-        if active_only:
-            query = query.eq("is_active", True)
-        return query.execute().data or []
-    except Exception:
-        return []
+    from database.supabase_client import get_admin_client
+    sb = get_admin_client()
+    query = (
+        sb.table("users")
+        .select("*")
+        .eq("client_id", client_id)
+        .eq("client_role", role)
+        .order("full_name")
+    )
+    if active_only:
+        query = query.eq("is_active", True)
+    return query.execute().data or []

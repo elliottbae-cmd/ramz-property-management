@@ -2,6 +2,7 @@
 
 import streamlit as st
 from database.supabase_client import get_client
+from utils.cache import cached_query
 
 
 def create_ticket(data: dict) -> dict | None:
@@ -61,21 +62,18 @@ def get_ticket(ticket_id: str) -> dict | None:
         return None
 
 
-@st.cache_data(ttl=120)
+@cached_query(ttl=120, default_factory=list)
 def get_tickets_for_user(user_id: str) -> list[dict]:
     """Return tickets submitted by or assigned to a specific user."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("tickets")
-            .select("*, stores(store_number, name, phone)")
-            .or_(f"submitted_by.eq.{user_id},assigned_to.eq.{user_id}")
-            .order("created_at", desc=True)
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
+    sb = get_client()
+    result = (
+        sb.table("tickets")
+        .select("*, stores(store_number, name, phone)")
+        .or_(f"submitted_by.eq.{user_id},assigned_to.eq.{user_id}")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
 
 
 def get_tickets_for_client(client_id: str, filters: dict | None = None, limit: int = 100) -> list[dict]:
@@ -222,38 +220,32 @@ def clear_comments_cache() -> None:
     _fetch_ticket_comments.clear()
 
 
-@st.cache_data(ttl=120)
+@cached_query(ttl=120, default_factory=list)
 def get_ticket_photos(ticket_id: str) -> list[dict]:
     """Fetch photos for a ticket."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("ticket_photos")
-            .select("*")
-            .eq("ticket_id", ticket_id)
-            .order("uploaded_at")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
+    sb = get_client()
+    result = (
+        sb.table("ticket_photos")
+        .select("*")
+        .eq("ticket_id", ticket_id)
+        .order("uploaded_at")
+        .execute()
+    )
+    return result.data or []
 
 
-@st.cache_data(ttl=120)
+@cached_query(ttl=120, default_factory=list)
 def get_ticket_approvals(ticket_id: str) -> list[dict]:
     """Fetch approval records for a ticket with approver names."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("approvals")
-            .select("*, users:approver_id(full_name)")
-            .eq("ticket_id", ticket_id)
-            .order("step_order")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
+    sb = get_client()
+    result = (
+        sb.table("approvals")
+        .select("*, users:approver_id(full_name)")
+        .eq("ticket_id", ticket_id)
+        .order("step_order")
+        .execute()
+    )
+    return result.data or []
 
 
 def add_comment(ticket_id: str, user_id: str, comment: str,

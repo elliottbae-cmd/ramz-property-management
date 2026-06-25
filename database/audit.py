@@ -1,8 +1,8 @@
 """Audit log — records all significant actions per client."""
 
-import streamlit as st
 from datetime import datetime, timezone, timedelta
 from database.supabase_client import get_client
+from utils.cache import cached_query
 
 
 def log_action(client_id: str, user_id: str, action: str,
@@ -99,27 +99,26 @@ def log_system_alert(action: str, details: dict | None = None) -> None:
         pass
 
 
-@st.cache_data(ttl=300)
+@cached_query(ttl=300, default_factory=list)
 def get_recent_system_alerts(action: str, hours: int = 24) -> list[dict]:
     """Return system-level audit entries matching *action* in the last *hours*.
 
     Used by the PSP sidebar to surface email limit warnings without
     running a fresh DB query on every page interaction (cached 5 min).
+    Raises on error (caught by cached_query) so an alert path isn't silently
+    suppressed for the TTL after a transient failure.
     """
-    try:
-        from database.supabase_client import get_admin_client
-        sb = get_admin_client()
-        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-        result = (
-            sb.table("audit_log")
-            .select("action, details, created_at")
-            .is_("client_id", "null")
-            .eq("action", action)
-            .gte("created_at", since)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
+    from database.supabase_client import get_admin_client
+    sb = get_admin_client()
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    result = (
+        sb.table("audit_log")
+        .select("action, details, created_at")
+        .is_("client_id", "null")
+        .eq("action", action)
+        .gte("created_at", since)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return result.data or []

@@ -14,86 +14,82 @@ from database.audit import log_action
 from components.photo_upload import render_photo_upload, save_photos
 from components.notifications import notify_new_ticket
 from theme.branding import render_header
+from utils.cache import cached_query
 
 
-@st.cache_data(ttl=300)
+@cached_query(ttl=300, default_factory=list)
 def _get_form_categories(client_id: str | None) -> list[dict]:
-    """Load form categories for the client (or global defaults)."""
-    try:
-        sb = get_client()
-        # Client-specific first
-        if client_id:
-            result_client = (
-                sb.table("form_categories")
-                .select("*")
-                .eq("is_active", True)
-                .eq("client_id", client_id)
-                .order("display_order")
-                .execute()
-            )
-            if result_client.data:
-                return result_client.data
-        # Fall back to global categories
-        result_global = (
+    """Load form categories for the client (or global defaults).
+
+    Raises on error (caught by cached_query) so a transient failure isn't
+    cached as "no categories" — which would kill the whole form for the TTL.
+    """
+    sb = get_client()
+    # Client-specific first
+    if client_id:
+        result_client = (
             sb.table("form_categories")
             .select("*")
             .eq("is_active", True)
-            .is_("client_id", "null")
+            .eq("client_id", client_id)
             .order("display_order")
             .execute()
         )
-        return result_global.data or []
-    except Exception:
-        return []
+        if result_client.data:
+            return result_client.data
+    # Fall back to global categories
+    result_global = (
+        sb.table("form_categories")
+        .select("*")
+        .eq("is_active", True)
+        .is_("client_id", "null")
+        .order("display_order")
+        .execute()
+    )
+    return result_global.data or []
 
 
-@st.cache_data(ttl=300)
+@cached_query(ttl=300, default_factory=list)
 def _get_brand_equipment_options(client_id: str, brand: str, category: str) -> list[dict]:
     """Load brand equipment options for a specific brand + category."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("brand_equipment_options")
-            .select("*")
-            .eq("client_id", client_id)
-            .eq("brand", brand)
-            .eq("category", category)
-            .eq("is_active", True)
-            .order("display_order")
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
+    sb = get_client()
+    result = (
+        sb.table("brand_equipment_options")
+        .select("*")
+        .eq("client_id", client_id)
+        .eq("brand", brand)
+        .eq("category", category)
+        .eq("is_active", True)
+        .order("display_order")
+        .execute()
+    )
+    return result.data or []
 
 
-@st.cache_data(ttl=300)
+@cached_query(ttl=300, default_factory=list)
 def _get_form_urgency_levels(client_id: str | None) -> list[dict]:
     """Load urgency levels for the client (or global defaults)."""
-    try:
-        sb = get_client()
-        if client_id:
-            result_client = (
-                sb.table("form_urgency_levels")
-                .select("*")
-                .eq("is_active", True)
-                .eq("client_id", client_id)
-                .order("display_order")
-                .execute()
-            )
-            if result_client.data:
-                return result_client.data
-        result_global = (
+    sb = get_client()
+    if client_id:
+        result_client = (
             sb.table("form_urgency_levels")
             .select("*")
             .eq("is_active", True)
-            .is_("client_id", "null")
+            .eq("client_id", client_id)
             .order("display_order")
             .execute()
         )
-        return result_global.data or []
-    except Exception:
-        return []
+        if result_client.data:
+            return result_client.data
+    result_global = (
+        sb.table("form_urgency_levels")
+        .select("*")
+        .eq("is_active", True)
+        .is_("client_id", "null")
+        .order("display_order")
+        .execute()
+    )
+    return result_global.data or []
 
 
 def render():

@@ -104,32 +104,35 @@ def get_all_clients() -> list[dict]:
 
     psp_role = user.get("psp_role", "")
     user_id = user.get("id", "")
-    return _fetch_all_clients(psp_role, user_id)
+    try:
+        return _fetch_all_clients(psp_role, user_id)
+    except Exception:
+        # Never cache a transient failure as "no clients" — that would blank the
+        # client switcher (and every page) for the full TTL. Catch outside the
+        # cached helper so only successful results are memoized.
+        return []
 
 
 @st.cache_data(ttl=300)
 def _fetch_all_clients(psp_role: str, user_id: str) -> list[dict]:
-    """Cached helper — fetch clients from the database."""
-    try:
-        sb = get_client()
+    """Cached helper — fetch clients. Raises on error so failures aren't cached."""
+    sb = get_client()
 
-        # PSP admin sees everything
-        if psp_role == "admin":
-            result = (
-                sb.table("clients")
-                .select("*")
-                .order("name")
-                .execute()
-            )
-            return result.data or []
-
-        # Other PSP roles see only their assigned clients
-        access = (
-            sb.table("psp_client_access")
-            .select("client_id, clients(*)")
-            .eq("psp_user_id", user_id)
+    # PSP admin sees everything
+    if psp_role == "admin":
+        result = (
+            sb.table("clients")
+            .select("*")
+            .order("name")
             .execute()
         )
-        return [row["clients"] for row in (access.data or []) if row.get("clients")]
-    except Exception:
-        return []
+        return result.data or []
+
+    # Other PSP roles see only their assigned clients
+    access = (
+        sb.table("psp_client_access")
+        .select("client_id, clients(*)")
+        .eq("psp_user_id", user_id)
+        .execute()
+    )
+    return [row["clients"] for row in (access.data or []) if row.get("clients")]

@@ -1,7 +1,7 @@
 """Ticket document storage — estimates, invoices, warranty docs, etc."""
 
-import streamlit as st
 from database.supabase_client import get_client, get_admin_client
+from utils.cache import cached_query
 
 BUCKET = "ticket-documents"
 
@@ -65,31 +65,66 @@ def save_document(
         "notes": notes or None,
     }
     result = sb.table("ticket_documents").insert(row).execute()
-    return result.data[0] if result.data else None
+    saved = result.data[0] if result.data else None
+    if saved:
+        get_ticket_documents.clear()
+    return saved
 
 
-@st.cache_data(ttl=60)
+@cached_query(ttl=60, default_factory=list)
 def get_ticket_documents(ticket_id: str) -> list[dict]:
     """Fetch all documents attached to a ticket, newest first."""
-    try:
-        sb = get_client()
-        result = (
-            sb.table("ticket_documents")
-            .select("*")
-            .eq("ticket_id", ticket_id)
-            .order("created_at", desc=True)
-            .execute()
-        )
-        return result.data or []
-    except Exception:
-        return []
+    sb = get_client()
+    result = (
+        sb.table("ticket_documents")
+        .select("*")
+        .eq("ticket_id", ticket_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
 
 
 def delete_document(doc_id: str) -> bool:
-    """Delete a document record (does not remove storage file)."""
+    """Delete a document record AND remove its storage file.
+
+    Looks up the row first to recover the storage path so the underlying file
+    is removed too (otherwise it lingers — and stays publicly reachable).
+    """
     try:
         sb = get_client()
+        # Recover the storage path from the stored public URL before deleting
+        try:
+            existing = (
+                sb.table("ticket_documents")
+                .select("file_url")
+                .eq("id", doc_id)
+                .single()
+                .execute()
+            )
+            file_url = (existing.data or {}).get("file_url", "")
+            path = _storage_path_from_url(file_url)
+            if path:
+                get_admin_client().storage.from_(BUCKET).remove([path])
+        except Exception:
+            pass  # best-effort file cleanup — still remove the DB row
+
         sb.table("ticket_documents").delete().eq("id", doc_id).execute()
+        get_ticket_documents.clear()
         return True
     except Exception:
         return False
+
+
+def _storage_path_from_url(file_url: str) -> str:
+    """Extract the in-bucket object path from a Supabase public URL.
+
+    e.g. .../object/public/ticket-documents/<ticket_id>/<file> → <ticket_id>/<file>
+    """
+    if not file_url:
+        return ""
+    marker = f"/public/{BUCKET}/"
+    idx = file_url.find(marker)
+    if idx == -1:
+        return ""
+    return file_url[idx + len(marker):].split("?", 1)[0]
