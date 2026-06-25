@@ -224,6 +224,12 @@ def _render_user_management(user: dict):
         key="user_mgmt_client",
     )
 
+    user_search = st.text_input(
+        "🔍 Search Users",
+        placeholder="Search by name, email, or role...",
+        key="user_mgmt_search",
+    )
+
     if selected_client == "psp":
         # Show PSP users
         try:
@@ -269,6 +275,27 @@ def _render_user_management(user: dict):
     if not users:
         st.info("No users found.")
         return
+
+    # Apply search filter across name, email, and role
+    if user_search:
+        q = user_search.lower().strip()
+        def _matches(u: dict) -> bool:
+            tier = u.get("user_tier", "")
+            role = u.get("psp_role") if tier == "psp" else u.get("client_role", "")
+            role_label = ROLE_LABELS.get(role, role or "")
+            haystack = " ".join([
+                u.get("full_name", "") or "",
+                u.get("email", "") or "",
+                role or "",
+                role_label,
+                u.get("_client_name", "") or "",
+            ]).lower()
+            return q in haystack
+        users = [u for u in users if _matches(u)]
+
+        if not users:
+            st.info(f"No users match '{user_search}'.")
+            return
 
     st.caption(f"{len(users)} user(s)")
 
