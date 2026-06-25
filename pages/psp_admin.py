@@ -325,6 +325,10 @@ def _render_user_management(user: dict):
 def _render_create_user(admin_user: dict):
     st.markdown("### Create New User")
 
+    # Success message persisted across the post-submit rerun that clears the form
+    if st.session_state.get("create_user_success"):
+        st.success(f"✅ User '{st.session_state.pop('create_user_success')}' created successfully!")
+
     clients = get_all_clients()
 
     with st.form("create_user"):
@@ -399,56 +403,74 @@ def _render_create_user(admin_user: dict):
                     st.error(e)
             else:
                 try:
-                    # Create the auth account and profile
-                    result = sign_up(
-                        email=email,
-                        password=password,
-                        full_name=full_name,
-                        user_tier=user_tier,
-                        client_id=client_id,
-                        client_role=client_role,
-                        psp_role=psp_role,
+                    admin_sb = get_admin_client()
+                except RuntimeError as e:
+                    st.error(
+                        f"Admin client not available: {e}. "
+                        "Add SUPABASE_SERVICE_KEY to your Streamlit secrets."
                     )
+                    return
 
-                    if result and result.user:
-                        # If sign_up did not create the profile (no session), create it manually
-                        if not result.session:
-                            profile_data = {
-                                "id": result.user.id,
-                                "email": email,
-                                "full_name": full_name,
-                                "user_tier": user_tier,
-                            }
-                            if user_tier == "psp" and psp_role:
-                                profile_data["psp_role"] = psp_role
-                            if user_tier == "client":
-                                profile_data["client_id"] = client_id
-                                profile_data["client_role"] = client_role
-                            create_user_profile(profile_data)
+                created_name = None
+                try:
+                    # Create the auth account via the admin API — bypasses the
+                    # 10-second signup rate limit and does NOT swap the current
+                    # session to the new user (the way sign_up() did).
+                    auth_result = admin_sb.auth.admin.create_user({
+                        "email": email,
+                        "password": password,
+                        "email_confirm": True,
+                    })
 
-                        # Assign store if applicable
+                    if not (auth_result and auth_result.user):
+                        st.error("Failed to create user account.")
+                    else:
+                        user_id = auth_result.user.id
+
+                        # Insert the profile (admin client bypasses RLS)
+                        profile_data = {
+                            "id": user_id,
+                            "email": email,
+                            "full_name": full_name,
+                            "user_tier": user_tier,
+                        }
+                        if user_tier == "psp" and psp_role:
+                            profile_data["psp_role"] = psp_role
+                        if user_tier == "client":
+                            profile_data["client_id"] = client_id
+                            profile_data["client_role"] = client_role
+                            if store_id and store_id != "":
+                                profile_data["store_id"] = store_id
+                        admin_sb.table("users").insert(profile_data).execute()
+
+                        # Store assignment junction row
                         if store_id and store_id != "":
-                            sb = get_client()
-                            sb.table("user_stores").insert({
-                                "user_id": result.user.id,
+                            admin_sb.table("user_stores").insert({
+                                "user_id": user_id,
                                 "store_id": store_id,
                             }).execute()
 
-                        # Grant PSP client access if PSP user (upsert to avoid duplicates)
+                        # Grant PSP client access if PSP user (upsert avoids dupes)
                         if user_tier == "psp":
-                            sb = get_client()
                             for c in clients:
-                                sb.table("psp_client_access").upsert({
-                                    "psp_user_id": result.user.id,
+                                admin_sb.table("psp_client_access").upsert({
+                                    "psp_user_id": user_id,
                                     "client_id": c["id"],
                                 }, on_conflict="psp_user_id,client_id").execute()
 
-                        st.success(f"User '{full_name}' created successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to create user account.")
+                        created_name = full_name
                 except Exception as e:
-                    st.error(f"Error creating user: {str(e)}")
+                    err_str = str(e)
+                    if "already registered" in err_str or "already been registered" in err_str:
+                        st.error(f"A user with email {email} already exists.")
+                    else:
+                        st.error(f"Error creating user: {err_str}")
+
+                # Rerun OUTSIDE the try so st.rerun()'s control-flow signal is
+                # never swallowed by the except above.
+                if created_name:
+                    st.session_state["create_user_success"] = created_name
+                    st.rerun()
 
 
 # ------------------------------------------------------------------
