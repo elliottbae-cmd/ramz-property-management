@@ -4,7 +4,9 @@ import io
 import streamlit as st
 import uuid
 from PIL import Image
-from database.supabase_client import upload_photo, get_client
+from database.supabase_client import upload_photo, get_client, get_admin_client
+
+PHOTO_BUCKET = "ticket-photos"
 
 MAX_DIMENSION = 1200  # px — longest side
 JPEG_QUALITY = 75     # 1-100, lower = smaller file
@@ -95,9 +97,18 @@ def save_photos(uploaded_files, ticket_id: str) -> list:
         compressed_size = len(compressed_bytes)
 
         unique_name = f"{uuid.uuid4().hex}.jpg"
+        storage_path = f"tickets/{ticket_id}/{unique_name}"
+
+        # Step 1: upload the file
         try:
             url = upload_photo(compressed_bytes, unique_name, ticket_id)
-            # Record the photo in the ticket_photos table
+        except Exception as e:
+            st.warning(f"Failed to upload {file.name}: {str(e)}")
+            continue
+
+        # Step 2: record it in the DB. If this fails, remove the just-uploaded
+        # file so it doesn't orphan in storage with no row referencing it.
+        try:
             sb = get_client()
             sb.table("ticket_photos").insert({
                 "ticket_id": ticket_id,
@@ -111,5 +122,9 @@ def save_photos(uploaded_files, ticket_id: str) -> list:
                 if savings > 5:
                     st.caption(f"Photo compressed: {original_size // 1024}KB → {compressed_size // 1024}KB ({savings:.0f}% smaller)")
         except Exception as e:
-            st.warning(f"Failed to upload {file.name}: {str(e)}")
+            try:
+                get_admin_client().storage.from_(PHOTO_BUCKET).remove([storage_path])
+            except Exception:
+                pass
+            st.warning(f"Failed to record {file.name}: {str(e)}")
     return urls
