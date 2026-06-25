@@ -31,6 +31,12 @@ def render():
 
     require_permission(can_access_psp_admin, "PSP admin access required.")
 
+    # Success banner shown above the tabs — survives the post-create rerun,
+    # which resets st.tabs back to the first tab and would otherwise hide a
+    # message rendered inside the Create User tab.
+    if st.session_state.get("create_user_success"):
+        st.success(f"✅ User '{st.session_state.pop('create_user_success')}' created successfully!")
+
     tab_clients, tab_users, tab_create_user, tab_bulk, tab_stores, tab_audit = st.tabs(
         ["Clients", "Users", "Create User", "Bulk Import", "Store Assignments", "Audit Log"]
     )
@@ -324,10 +330,6 @@ def _render_user_management(user: dict):
 
 def _render_create_user(admin_user: dict):
     st.markdown("### Create New User")
-
-    # Success message persisted across the post-submit rerun that clears the form
-    if st.session_state.get("create_user_success"):
-        st.success(f"✅ User '{st.session_state.pop('create_user_success')}' created successfully!")
 
     clients = get_all_clients()
 
