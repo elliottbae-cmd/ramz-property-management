@@ -9,7 +9,7 @@ import streamlit as st
 import pandas as pd
 from database.supabase_client import get_current_user, get_client, get_admin_client, sign_up
 from database.tenant import get_all_clients
-from database.users import get_users_for_client, create_user_profile, update_user
+from database.users import get_users_for_client, create_user_profile, update_user, clear_users_cache
 from database.stores import get_stores, create_store
 from database.audit import log_action, get_audit_log
 from theme.branding import render_header
@@ -318,6 +318,7 @@ def _render_user_management(user: dict):
 
                 result = update_user(u["id"], update_data)
                 if result:
+                    clear_users_cache()  # reflect the edit in the Users tab immediately
                     st.success(f"Updated {u['full_name']}!")
                     st.rerun()
                 else:
@@ -471,6 +472,7 @@ def _render_create_user(admin_user: dict):
                 # Rerun OUTSIDE the try so st.rerun()'s control-flow signal is
                 # never swallowed by the except above.
                 if created_name:
+                    clear_users_cache()  # so the new user appears in the Users tab immediately
                     st.session_state["create_user_success"] = created_name
                     st.rerun()
 
