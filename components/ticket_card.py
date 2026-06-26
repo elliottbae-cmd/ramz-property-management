@@ -102,6 +102,23 @@ def render_ticket_detail(ticket: dict, photos: list = None, comments: list = Non
             f"**Store:** {safe_store_label}{phone_display}",
             unsafe_allow_html=True,
         )
+
+        # Full store address with a Google Maps link
+        street = store.get("address") or ""
+        city = store.get("city") or ""
+        state = store.get("state") or ""
+        zipc = store.get("zip_code") or ""
+        city_line = ", ".join(p for p in [city, " ".join(x for x in [state, zipc] if x)] if p.strip())
+        full_address = ", ".join(p for p in [street, city_line] if p)
+        if full_address:
+            import urllib.parse
+            maps_q = urllib.parse.quote(full_address)
+            st.markdown(
+                f"**Address:** {full_address} "
+                f"&nbsp;[🗺️ Map](https://www.google.com/maps/search/?api=1&query={maps_q})",
+                unsafe_allow_html=True,
+            )
+
         st.markdown(f"**Submitted by:** {_html.escape(submitter.get('full_name', 'N/A'))}")
         st.markdown(f"**Submitted:** {time_ago(ticket.get('created_at', ''))}")
 
