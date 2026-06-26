@@ -106,7 +106,19 @@ def render_ticket_detail(ticket: dict, photos: list = None, comments: list = Non
         st.markdown(f"**Submitted:** {time_ago(ticket.get('created_at', ''))}")
 
     if equipment:
-        st.markdown(f"**Equipment:** {equipment.get('name', 'N/A')} (SN: {equipment.get('serial_number', 'N/A')})")
+        st.markdown(f"**Equipment:** {equipment.get('name', 'N/A')}")
+        detail_bits = []
+        if equipment.get("manufacturer"):
+            detail_bits.append(f"Make: {equipment['manufacturer']}")
+        if equipment.get("model"):
+            detail_bits.append(f"Model: {equipment['model']}")
+        if equipment.get("serial_number"):
+            detail_bits.append(f"S/N: {equipment['serial_number']}")
+        if detail_bits:
+            st.caption("  |  ".join(detail_bits))
+    elif ticket.get("equipment_description"):
+        # GM-entered equipment not yet promoted to inventory
+        st.markdown(f"**Equipment (not in inventory):** {ticket['equipment_description']}")
 
     st.markdown("---")
     st.markdown("**Description:**")
